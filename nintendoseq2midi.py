@@ -110,7 +110,7 @@ def parse_command(byte, i):
             
             if not seqtype == b'RSEQ': get_label(i) # TODO: fix, breaks rseq
         case b'\x89': # jump
-            print(f'{hex(seq.tell() - 1)}: jump {int.from_bytes(seq.read(3), endian)} (not implemented)')
+            print(f'{hex(seq.tell() - 1)}: jump {int.from_bytes(seq.read(3), endianalt)} (not implemented)')
         case b'\x8A': # call
             if seqtype == b'RSEQ':
                 headeroffset = 12
@@ -372,19 +372,20 @@ def parse_header():
 
         print(f'Version: {SEQ_version}')
         
-        # Version 00 00 00 01:
-        # Mario and Donkey Kong: Minis on the Move
-        # Tomodachi Life
+        # 00 01 00 00:
+        # 2012/11/18 Nintendo Land
+        # 2013/03/28 Game & Wario
         
-        # Version 00 00 01 01:
-        # Rhythm Heaven Megamix
+        # 00 00 00 01:
+        # 2013/04/18 Tomodachi Life
+        # 2013/05/09 Mario and Donkey Kong: Minis on the Move
         
-        # Version 00 01 00 00:
-        # Game & Wario
-        # Nintendo Land
+        # 00 00 01 01:
+        # 2015/06/11 Rhythm Heaven Megamix
+        # 2018/10/12 Luigi's Mansion
         
-        # Version 00 00 02 00:
-        # WarioWare: Get It Together!
+        # 00 00 02 00:
+        # 2021/09/10 WarioWare: Get It Together!
         
         if SEQ_version != 1 and SEQ_version != 257 and SEQ_version != 512 and SEQ_version != 65536:
             print(f"\033[93mWARNING: untested version {SEQ_version}\033[0m")
