@@ -1,5 +1,4 @@
 import sys
-import math
 
 def hexarray(array):
     return '[{}]'.format(', '.join(hex(x) for x in array))
@@ -47,11 +46,15 @@ def write_wait():
     waitedamount = tick - waittick # how much has been waited so far
     
     mid.seek(mid.tell() - 1)
+    
     if waitedamount < 128:
         mid.write((waitedamount).to_bytes(1))
-    else:
-        mid.write((0x80 + math.floor((waitedamount) / 128)).to_bytes(1))
+    elif waitedamount < 16384:
+        mid.write((0x80 + (waitedamount >> 7)).to_bytes(1))
         mid.write(((waitedamount) % 128).to_bytes(1))
+    else:
+        print(f'\033[91mERROR: wait too big!\033[0m') # TODO: handle this correctly
+        mid.write(b'\xFF\x7F')
     
     waittick = tick
     waitamount -= waitedamount
@@ -92,32 +95,31 @@ def parse_command(byte, i):
             mid.write(b'\x00')
         case b'\x88': # open track
             hDATA_tracknumbers.append(int.from_bytes(seq.read(1), endian))
-
+            
             if seqtype == b'RSEQ':
                 headeroffset = 12
             else:
                 headeroffset = 8
             
-            if seqtype == b'CSEQ': hDATA_trackoffsets.append(int.from_bytes(seq.read(3), "big") + SEQ_sectionoffsets[i] + headeroffset)
-            else: hDATA_trackoffsets.append(int.from_bytes(seq.read(3), endian) + SEQ_sectionoffsets[i] + headeroffset)
+            hDATA_trackoffsets.append(int.from_bytes(seq.read(3), endianalt) + SEQ_sectionoffsets[i] + headeroffset)
             print(f'{hex(seq.tell() - 5)}: track {hDATA_tracknumbers[len(hDATA_tracknumbers) - 1]} at {hex(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])}')
-
+            
             trackreturn.append(seq.tell())
             channel = hDATA_tracknumbers[len(hDATA_tracknumbers) - 1]
             seq.seek(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])
-
+            
             if not seqtype == b'RSEQ': get_label(i) # TODO: fix, breaks rseq
-        case b'\x89':
+        case b'\x89': # jump
             print(f'{hex(seq.tell() - 1)}: jump {int.from_bytes(seq.read(3), endian)} (not implemented)')
         case b'\x8A': # call
             if seqtype == b'RSEQ':
                 headeroffset = 12
             else:
                 headeroffset = 8
-
-            call = int.from_bytes(seq.read(3), endian) + SEQ_sectionoffsets[i] + headeroffset
+            
+            call = int.from_bytes(seq.read(3), endianalt) + SEQ_sectionoffsets[i] + headeroffset
             print(f'{hex(seq.tell() - 4)}: call {hex(call)}')
-
+            
             callreturn.append(seq.tell())
             seq.seek(call)
         case b'\x93': # open track (SSEQ)
@@ -160,7 +162,7 @@ def parse_command(byte, i):
             print(f'{hex(seq.tell() - 1)}: bank {int.from_bytes(seq.read(1), endian)} (not implemented)')
         case b'\xC0':
             write_wait()
-
+            
             SEQ_pan = int.from_bytes(seq.read(1), endian)
             print(f'{hex(seq.tell() - 2)}: pan {SEQ_pan}')
 
@@ -170,10 +172,10 @@ def parse_command(byte, i):
             mid.write(b'\x00')
         case b'\xC1':
             write_wait()
-
+            
             SEQ_vol = int.from_bytes(seq.read(1), endian)
             print(f'{hex(seq.tell() - 2)}: volume {SEQ_vol}')
-
+            
             mid.write((0xB0 + channel).to_bytes(1))
             mid.write(b'\x07')
             mid.write((SEQ_vol).to_bytes(1))
@@ -209,12 +211,12 @@ def parse_command(byte, i):
             print(f'{hex(seq.tell() - 1)}: release {int.from_bytes(seq.read(1), endian)} (not implemented)')
         case b'\xD5':
             print(f'{hex(seq.tell() - 1)}: expression {int.from_bytes(seq.read(1), endian)} (not implemented)')
-        case b'\xD8': # UNKNOWN found in nsmbw 0x70E40
+        case b'\xD8': # UNKNOWN found in nsmbw 0x70E40, minis on the move 0xE040
             print(f'{hex(seq.tell() - 1)}: UNKNOWN D8')
-            seq.read(2)
-        case b'\xD9': # UNKNOWN found in tomorrow hill from warioware smooth moves, mkw 0x39EF40
+            seq.read(1)
+        case b'\xD9': # UNKNOWN found in tomorrow hill from warioware smooth moves, mkw 0x39EF40, minis on the move 0xE040
             print(f'{hex(seq.tell() - 1)}: UNKNOWN D9')
-            seq.read(5)
+            seq.read(1)
         case b'\xDA':
             print(f'{hex(seq.tell() - 1)}: fx {int.from_bytes(seq.read(1), endian)} (not implemented)')
         case b'\xDE': # UNKNOWN found in tomorrow hill from warioware smooth moves
@@ -222,14 +224,13 @@ def parse_command(byte, i):
             seq.read(1)
         case b'\xE1': # set bpm
             write_wait()
-
+            
             global SEQ_bpm
-
-            if seqtype == b'CSEQ': SEQ_bpm = int.from_bytes(seq.read(2), "big")
-            else: SEQ_bpm = int.from_bytes(seq.read(2), endian)
-
+            
+            SEQ_bpm = int.from_bytes(seq.read(2), endianalt)
+            
             print(f'{hex(seq.tell() - 3)}: BPM {SEQ_bpm}')
-
+            
             mid.write(b'\xFF\x51\x03')
             mid.write((int(60000000 / SEQ_bpm)).to_bytes(3))
             mid.write(b'\x00')
@@ -238,19 +239,17 @@ def parse_command(byte, i):
         case b'\xFD':
             print(f'{hex(seq.tell() - 1)}: return')
             seq.seek(callreturn.pop(0))
-
+            
         case b'\xFE':
             print(f'{hex(seq.tell() - 1)}: alloc tracks {seq.read(2)} (not implemented)')
             if not seqtype == b'SSEQ' and not seqtype == b'RSEQ': get_label(i) # TODO: fix, breaks rseq
         case b'\xFF':
             write_wait()
-
+            
             print(f'{hex(seq.tell() - 1)}: done')
-
+            
             mid.write(b'\xFF\x2F\x00')
-
-            #notestick = []
-            #notescommand = []
+            
             waittick = 0
             waitamount = 0
             
@@ -260,7 +259,7 @@ def parse_command(byte, i):
                 get_label(i)
             else:
                 done = True
-
+            
         case _:
             write_wait()
 
@@ -270,17 +269,17 @@ def parse_command(byte, i):
                 SEQ_note = int.from_bytes(seq.read(1), endian)
                 SEQ_vel = int.from_bytes(seq.read(1), endian)
                 SEQ_len = int.from_bytes(seq.read(1), endian)
-
+                
                 if SEQ_len > 127:
                     SEQ_len = int.from_bytes(seq.read(1), endian)
                     seq.seek(seq.tell() - 2)
                     SEQ_len += (int.from_bytes(seq.read(1), endian) - 0x80) * 0x80
                     seq.seek(seq.tell() + 1)
                 print(f'{hex(seq.tell() - 3)}: play note {SEQ_note} with velocity {SEQ_vel} for {SEQ_len} ticks')
-
+                
                 notestick.append(tick + SEQ_len)
                 notescommand.append((0x80 + channel).to_bytes(1) + (SEQ_note).to_bytes(1) + (SEQ_vel).to_bytes(1) + b'\x00')
-
+                
                 # TODO: theres gotta be a better way to sort these
                 notestick, notescommand = zip(*sorted(zip(notestick, notescommand)))
                 notestick = list(notestick)
@@ -346,12 +345,15 @@ def parse_header():
     
     print(f'Endian: {endian}')
     
+    global endianalt
+    endianalt = endian
     if (seqtype == b'SSEQ' and endian == "little"):
         print('Type: DS')
     if (seqtype == b'RSEQ' and endian == "big"):
         print('Type: Wii')
     if (seqtype == b'CSEQ' and endian == "little"):
         print('Type: 3DS')
+        endianalt = 'big' # 3ds uses big calls/jumps even though its little?
     if (seqtype == b'FSEQ' and endian == "big"):
         print('Type: Wii U')
     if (seqtype == b'FSEQ' and endian == "little"):
@@ -369,18 +371,22 @@ def parse_header():
         hSEQ_length -= 4
 
         print(f'Version: {SEQ_version}')
-
+        
+        # Version 00 00 00 01:
+        # Mario and Donkey Kong: Minis on the Move
+        # Tomodachi Life
+        
         # Version 00 00 01 01:
         # Rhythm Heaven Megamix
         
         # Version 00 01 00 00:
         # Game & Wario
         # Nintendo Land
-
+        
         # Version 00 00 02 00:
         # WarioWare: Get It Together!
-
-        if SEQ_version != 257 and SEQ_version != 65536:
+        
+        if SEQ_version != 1 and SEQ_version != 257 and SEQ_version != 512 and SEQ_version != 65536:
             print(f"\033[93mWARNING: untested version {SEQ_version}\033[0m")
         
         # 000C - 000F
