@@ -369,7 +369,7 @@ def parse_header():
         global SEQ_version
         SEQ_version = int.from_bytes(seq.read(4), "big") # ALWAYS big?
         hSEQ_length -= 4
-
+        
         print(f'Version: {SEQ_version}')
         
         # 00 01 00 00:
