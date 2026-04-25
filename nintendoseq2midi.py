@@ -1,4 +1,8 @@
 import sys
+import math
+
+global accurate_mixing
+accurate_mixing = True
 
 def hexarray(array):
     return '[{}]'.format(', '.join(hex(x) for x in array))
@@ -160,17 +164,19 @@ def parse_command(byte, i):
             seq.read(5)
         case b'\xB6':
             print(f'{hex(seq.tell() - 1)}: bank {int.from_bytes(seq.read(1), endian)} (not implemented)')
-        case b'\xC0':
+        case b'\xC0': # panning
             write_wait()
             
             SEQ_pan = int.from_bytes(seq.read(1), endian)
             print(f'{hex(seq.tell() - 2)}: pan {SEQ_pan}')
-
+            
+            if accurate_mixing: SEQ_pan = round(SEQ_pan + (8 * math.sin((math.pi * SEQ_pan) / 64))) # duno why it does this but it sounds right for minis on the move
+            
             mid.write((0xB0 + channel).to_bytes(1))
             mid.write(b'\x0A')
             mid.write((SEQ_pan).to_bytes(1))
             mid.write(b'\x00')
-        case b'\xC1':
+        case b'\xC1': # volume
             write_wait()
             
             SEQ_vol = int.from_bytes(seq.read(1), endian)
