@@ -162,8 +162,16 @@ def parse_command(byte, i):
         case b'\xB4': # UNKNOWN found in nsmbw 0x70E40
             print(f'{hex(seq.tell() - 1)}: UNKNOWN B4')
             seq.read(5)
-        case b'\xB6':
-            print(f'{hex(seq.tell() - 1)}: bank {int.from_bytes(seq.read(1), endian)} (not implemented)')
+        case b'\xB6': # bank
+            write_wait()
+            
+            SEQ_bnk = int.from_bytes(seq.read(1), endian)
+            print(f'{hex(seq.tell() - 2)}: bank {SEQ_bnk}')
+            
+            mid.write((0xB0 + channel).to_bytes(1))
+            mid.write(b'\x00')
+            mid.write((SEQ_bnk).to_bytes(1))
+            mid.write(b'\x00')
         case b'\xC0': # panning
             write_wait()
             
