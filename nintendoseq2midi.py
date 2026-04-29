@@ -2,10 +2,17 @@ import sys
 import math
 import random
 
-global accurate_mixing
+global accurate_mixing # only tested for Mario and Donkey Kong: Minis on the Move
 accurate_mixing = True
-global combined_volume
+global combined_volume # for programs such as FL Studio which do not include expression
 combined_volume = False
+
+global failed_return_end # failsafe incase of incorrectly managed sequence files (such as songs from Mario and Donkey Kong: Minis on the Move)
+failed_return_end = True
+global ignore_jump # includes unused portions of some songs (such as songs from Mario and Donkey Kong: Minis on the Move)
+ignore_jump = False
+global past_jump_end # breaks out of infinite loops
+past_jump_end = True
 
 def hexarray(array):
     return '[{}]'.format(', '.join(hex(x) for x in array))
@@ -82,6 +89,7 @@ def parse_command(byte, i):
     global notestick
     global notescommand
     global headeroffset
+    global allocated
     
     global done
     
@@ -120,10 +128,31 @@ def parse_command(byte, i):
             
             opentracknumber.append(hDATA_tracknumbers[len(hDATA_tracknumbers) - 1])
             opentrackoffset.append(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])
-            get_label(i)
             
         case b'\x89': # jump
-            print(f'{location}: jump {int.from_bytes(seq.read(3), endianalt)} (not implemented)')
+            value = int.from_bytes(seq.read(3), endianalt) + SEQ_sectionoffsets[i] + headeroffset
+            
+            print(f'{location}: jump {hex(value)}')
+            
+            if not ignore_jump:
+                if past_jump_end and value < seq.tell():
+                    print(f'loop detected!')
+                    
+                    write_wait()
+                    
+                    mid.write(b'\xFF\x2F\x00')
+                    
+                    waittick = 0
+                    waitamount = 0
+                    
+                    if len(opentracknumber) > 0:
+                        channel = opentracknumber.pop(0)
+                        seq.seek(opentrackoffset.pop(0))
+                    else:
+                        done = True
+                else:
+                    seq.seek(value)
+                    get_label(i)
             
         case b'\x8A': # call
             value = int.from_bytes(seq.read(3), endianalt) + SEQ_sectionoffsets[i] + headeroffset
@@ -132,6 +161,7 @@ def parse_command(byte, i):
             
             callreturn.append(seq.tell())
             seq.seek(value)
+            get_label(i)
             
         case b'\x93': # open track (SSEQ)
             hDATA_tracknumbers.append(int.from_bytes(seq.read(1)))
@@ -171,7 +201,7 @@ def parse_command(byte, i):
             if command == b'\xC0':
                 write_wait()
                 
-                if accurate_mixing: value = round(value + (8 * math.sin((math.pi * value) / 64))) # duno why it does this but it sounds right for minis on the move
+                if accurate_mixing: value = round(value + (8 * math.sin((math.pi * value) / 64)))
                 midi_cc(channel, 0x0A, value)
             
             if command == b'\xC3':
@@ -179,6 +209,11 @@ def parse_command(byte, i):
                 
                 value += 12
                 value = round(value * (16384 / 24))
+                
+                # set pitch bend range to 12
+                midi_cc(channel, 0x65, 0)
+                midi_cc(channel, 0x64, 0)
+                midi_cc(channel, 0x06, 12)
                 
                 mid.write((0xE0 + channel).to_bytes(1))
                 mid.write((value & 0x7F).to_bytes(1))
@@ -280,6 +315,9 @@ def parse_command(byte, i):
             print(f'{location}: priority {int.from_bytes(seq.read(1))} (not implemented)')
             
         case b'\xC7':
+            seq.seek(seq.tell() - 1)
+            get_label(i)
+            seq.read(1)
             print(f'{location}: notewait {int.from_bytes(seq.read(1))} (not implemented)')
             
         case b'\xC9': # portamento
@@ -291,25 +329,35 @@ def parse_command(byte, i):
             
             midi_cc(channel, 0x54, value)
             
-        case b'\xCA': # mod
+        case b'\xCA': # vibrato depth
             write_wait()
             
             value = int.from_bytes(seq.read(1))
             
-            print(f'{location}: mod {value}')
+            print(f'{location}: vibrato depth {value}')
             
-            midi_cc(channel, 0x01, value)
+            midi_cc(channel, 0x01, value) # may be 0x4D?
             
-        case b'\xCB': # UNKNOWN found in mario kart wii SMF_option_ch
-            print(f'{location}: UNKNOWN CB')
-            seq.read(1)
+        case b'\xCB': # vibrato speed, found in mario kart wii SMF_option_ch, SMF_Clone_MansionRoom2
+            write_wait()
             
-        case b'\xCC':
-            print(f'{location}: mod type {int.from_bytes(seq.read(1))} (not implemented)')
+            value = int.from_bytes(seq.read(1))
             
-        case b'\xCD': # UNKNOWN found in mario kart wii SMF_option_ch
-            print(f'{location}: UNKNOWN CD')
-            seq.read(1)
+            print(f'{location}: vibrato speed {value}')
+            
+            midi_cc(channel, 0x4C, value)
+            
+        case b'\xCC': # vibrato type
+            print(f'{location}: vibrato type {int.from_bytes(seq.read(1))} (not implemented)')
+            
+        case b'\xCD': # vibrato range, found in mario kart wii SMF_option_ch, SMF_Clone_MansionRoom2
+            write_wait()
+            
+            value = int.from_bytes(seq.read(1))
+            
+            print(f'{location}: vibrato range {value}')
+            
+            midi_cc(channel, 0x4D, value) # may not be 0x4D?
             
         case b'\xCE':
             write_wait()
@@ -383,12 +431,11 @@ def parse_command(byte, i):
             print(f'{location}: UNKNOWN D8')
             seq.read(1)
             
-        case b'\xD9': # UNKNOWN found in tomorrow hill from warioware smooth moves, mkw 0x39EF40, minis on the move 0xE040
-            print(f'{location}: UNKNOWN D9')
-            seq.read(1)
+        case b'\xD9': # UNKNOWN found in tomorrow hill from warioware smooth moves, mkw 0x39EF40, minis on the move 0xE040, SMF_Clone_MansionRoom2
+            print(f'{location}: fxa {int.from_bytes(seq.read(1))} (not implemented)')
             
         case b'\xDA':
-            print(f'{location}: fx {int.from_bytes(seq.read(1))} (not implemented)')
+            print(f'{location}: fxb {int.from_bytes(seq.read(1))} (not implemented)')
             
         case b'\xDC': # UNKNOWN found in tomorrow hill from warioware smooth moves, mkw 0x39EF40, minis on the move 0xE040
             print(f'{location}: UNKNOWN DC')
@@ -423,9 +470,24 @@ def parse_command(byte, i):
                 seq.seek(callreturn.pop(0))
             else:
                 print(f"\033[93mWARNING: nothing to return to!\033[0m")
+                if failed_return_end:
+                    write_wait()
+                    
+                    mid.write(b'\xFF\x2F\x00')
+                    
+                    waittick = 0
+                    waitamount = 0
+                    
+                    if len(opentracknumber) > 0:
+                        channel = opentracknumber.pop(0)
+                        seq.seek(opentrackoffset.pop(0))
+                    else:
+                        done = True
             
         case b'\xFE':
-            print(f'{location}: alloc tracks {seq.read(2)} (not implemented)')
+            allocated = int.from_bytes(seq.read(2))
+            
+            print(f'{location}: allocate tracks {allocated} (not implemented)')
             
         case b'\xFF': # end
             write_wait()
@@ -440,7 +502,6 @@ def parse_command(byte, i):
             if len(opentracknumber) > 0:
                 channel = opentracknumber.pop(0)
                 seq.seek(opentrackoffset.pop(0))
-                get_label(i)
             else:
                 done = True
             
@@ -485,34 +546,34 @@ def get_label(i):
     global headeroffset
     global mtrk
     
-    try:
+    temp = seq.tell() - SEQ_sectionoffsets[i] - headeroffset
+    
+    if seqtype != b'SSEQ' and temp in hLABL_labeldataoffsets:
         labelindex = hLABL_labeldataoffsets.index(seq.tell() - SEQ_sectionoffsets[i] - headeroffset)
         label = hLABL_labels[labelindex]
         print(f'\n\033[92m{hex(seq.tell())}----{label}\033[0m')
-        if labelindex > 2:
-            if len(callreturn) <= 0:
-                mtrk.append(mid.tell())
-                mid.write('MTrk'.encode())
-                mid.write((302302).to_bytes(4))
-                mid.write(b'\x00')
-                mid.write(b'\xFF\x03')
-                mid.write(len(label).to_bytes(1))
-                mid.write((label).encode())
-                mid.write(b'\x00')
-                
-                tick = 0
-                nexttick = 0
-    except:
-        if seqtype == b'SSEQ': # TODO: do this without try and except
-            mtrk.append(mid.tell())
-            mid.write('MTrk'.encode())
-            mid.write((302302).to_bytes(4))
+    else:
+        labelindex = -1
+    
+    if len(callreturn) <= 0:
+        if len(mtrk) > 0:
+            mid.seek(mid.tell() - 3)
+            if mid.read(3) != b'\xFF\x2F\x00':
+                mid.write(b'\xFF\x2F\x00')
+        
+        mtrk.append(mid.tell())
+        mid.write('MTrk'.encode())
+        mid.write((302302).to_bytes(4))
+        mid.write(b'\x00')
+        
+        if labelindex > -1:
+            mid.write(b'\xFF\x03')
+            mid.write(len(label).to_bytes(1))
+            mid.write((label).encode())
             mid.write(b'\x00')
-            
-            tick = 0
-            nexttick = 0
-        else:
-            pass
+        
+        tick = 0
+        nexttick = 0
 
 def parse_header():
     # *SEQ header
