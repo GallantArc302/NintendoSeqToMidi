@@ -2,7 +2,7 @@ import sys
 import math
 
 global accurate_mixing
-accurate_mixing = True
+accurate_mixing = False
 
 def hexarray(array):
     return '[{}]'.format(', '.join(hex(x) for x in array))
@@ -23,6 +23,9 @@ def header_common(header, length):
         seq.seek(seq.tell() - 4)
         print(f'\033[91mERROR: expected length {length} but got length {int.from_bytes(seq.read(4), endian)} at {hex(seq.tell() - 4)}\033[0m')
         quit()
+    
+    if seqtype == b'SSEQ' or seqtype == b'RSEQ':
+        SEQ_sectionamounts.append(seq.read(4))
 
 def checktick(i):
     global tick
@@ -67,12 +70,14 @@ def parse_command(byte, i):
     global tick
     global nexttick
     global channel
-    global trackreturn
+    global opentracknumber
+    global opentrackoffset
     global callreturn
     global waittick
     global waitamount
     global notestick
     global notescommand
+    global headeroffset
 
     global done
 
@@ -100,27 +105,16 @@ def parse_command(byte, i):
         case b'\x88': # open track
             hDATA_tracknumbers.append(int.from_bytes(seq.read(1), endian))
             
-            if seqtype == b'RSEQ':
-                headeroffset = 12
-            else:
-                headeroffset = 8
-            
             hDATA_trackoffsets.append(int.from_bytes(seq.read(3), endianalt) + SEQ_sectionoffsets[i] + headeroffset)
             print(f'{hex(seq.tell() - 5)}: track {hDATA_tracknumbers[len(hDATA_tracknumbers) - 1]} at {hex(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])}')
             
-            trackreturn.append(seq.tell())
-            channel = hDATA_tracknumbers[len(hDATA_tracknumbers) - 1]
-            seq.seek(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])
+            opentracknumber.append(hDATA_tracknumbers[len(hDATA_tracknumbers) - 1])
+            opentrackoffset.append(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])
             
-            if not seqtype == b'RSEQ': get_label(i) # TODO: fix, breaks rseq
+            get_label(i) # TODO: fix, breaks rseq
         case b'\x89': # jump
             print(f'{hex(seq.tell() - 1)}: jump {int.from_bytes(seq.read(3), endianalt)} (not implemented)')
         case b'\x8A': # call
-            if seqtype == b'RSEQ':
-                headeroffset = 12
-            else:
-                headeroffset = 8
-            
             call = int.from_bytes(seq.read(3), endianalt) + SEQ_sectionoffsets[i] + headeroffset
             print(f'{hex(seq.tell() - 4)}: call {hex(call)}')
             
@@ -128,18 +122,13 @@ def parse_command(byte, i):
             seq.seek(call)
         case b'\x93': # open track (SSEQ)
             hDATA_tracknumbers.append(int.from_bytes(seq.read(1), endian))
-
-            headeroffset = 12
             
             hDATA_trackoffsets.append(int.from_bytes(seq.read(3), endian) + SEQ_sectionoffsets[i] + headeroffset)
             print(f'{hex(seq.tell() - 5)}: track {hDATA_tracknumbers[len(hDATA_tracknumbers) - 1]} at {hex(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])}')
-
-            trackreturn.append(seq.tell())
-            channel = hDATA_tracknumbers[len(hDATA_tracknumbers) - 1]
-            seq.seek(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])
+            
+            opentracknumber.append(hDATA_tracknumbers[len(hDATA_tracknumbers) - 1])
+            opentrackoffset.append(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])
         case b'\x95': # call (SSEQ)
-            headeroffset = 12
-
             call = int.from_bytes(seq.read(3), endian) + SEQ_sectionoffsets[i] + headeroffset
             print(f'{hex(seq.tell() - 4)}: call {hex(call)}')
 
@@ -209,8 +198,14 @@ def parse_command(byte, i):
             print(f'{hex(seq.tell() - 1)}: notewait {int.from_bytes(seq.read(1), endian)} (not implemented)')
         case b'\xCA':
             print(f'{hex(seq.tell() - 1)}: mod depth {int.from_bytes(seq.read(1), endian)} (not implemented)')
+        case b'\xCB': # UNKNOWN found in mario kart wii SMF_option_ch
+            print(f'{hex(seq.tell() - 1)}: UNKNOWN CB')
+            seq.read(1)
         case b'\xCC':
             print(f'{hex(seq.tell() - 1)}: mod type {int.from_bytes(seq.read(1), endian)} (not implemented)')
+        case b'\xCD': # UNKNOWN found in mario kart wii SMF_option_ch
+            print(f'{hex(seq.tell() - 1)}: UNKNOWN CD')
+            seq.read(1)
         case b'\xCE':
             print(f'{hex(seq.tell() - 1)}: porta {int.from_bytes(seq.read(1), endian)} (not implemented)')
         case b'\xCF':
@@ -224,7 +219,15 @@ def parse_command(byte, i):
         case b'\xD3':
             print(f'{hex(seq.tell() - 1)}: release {int.from_bytes(seq.read(1), endian)} (not implemented)')
         case b'\xD5':
-            print(f'{hex(seq.tell() - 1)}: expression {int.from_bytes(seq.read(1), endian)} (not implemented)')
+            write_wait()
+            
+            SEQ_exp = int.from_bytes(seq.read(1), endian)
+            print(f'{hex(seq.tell() - 2)}: expression {SEQ_exp}')
+            
+            mid.write((0xB0 + channel).to_bytes(1))
+            mid.write(b'\x0B')
+            mid.write((SEQ_exp).to_bytes(1))
+            mid.write(b'\x00')
         case b'\xD8': # UNKNOWN found in nsmbw 0x70E40, minis on the move 0xE040
             print(f'{hex(seq.tell() - 1)}: UNKNOWN D8')
             seq.read(1)
@@ -250,14 +253,15 @@ def parse_command(byte, i):
             mid.write(b'\x00')
         case b'\xF0': # found in nsmbu 0xD3989E0
             print(f'{hex(seq.tell() - 1)}: set variable, parameters: {int.from_bytes(seq.read(1), endian)}, {int.from_bytes(seq.read(1), endian)}, {int.from_bytes(seq.read(1), endian)}, {int.from_bytes(seq.read(1), endian)}')
-        case b'\xFD':
+        case b'\xFD': # return
             print(f'{hex(seq.tell() - 1)}: return')
-            seq.seek(callreturn.pop(0))
-            
+            if len(callreturn) > 0:
+                seq.seek(callreturn.pop(0))
+            else:
+                print(f"\033[93mWARNING: nothing to return to!\033[0m")
         case b'\xFE':
             print(f'{hex(seq.tell() - 1)}: alloc tracks {seq.read(2)} (not implemented)')
-            if not seqtype == b'SSEQ' and not seqtype == b'RSEQ': get_label(i) # TODO: fix, breaks rseq
-        case b'\xFF':
+        case b'\xFF': # end
             write_wait()
             
             print(f'{hex(seq.tell() - 1)}: done')
@@ -267,9 +271,9 @@ def parse_command(byte, i):
             waittick = 0
             waitamount = 0
             
-            if len(trackreturn) > 0:
-                seq.seek(trackreturn.pop(0))
-                channel = 0
+            if len(opentracknumber) > 0:
+                channel = opentracknumber.pop(0)
+                seq.seek(opentrackoffset.pop(0))
                 get_label(i)
             else:
                 done = True
@@ -310,15 +314,16 @@ def parse_command(byte, i):
 def get_label(i):
     global tick
     global nexttick
+    global headeroffset
 
     try:
-        labelindex = hLABL_labeldataoffsets.index(seq.tell() - SEQ_sectionoffsets[i] - 0x08)
+        labelindex = hLABL_labeldataoffsets.index(seq.tell() - SEQ_sectionoffsets[i] - headeroffset)
         label = hLABL_labels[labelindex]
         print(f'\n\033[92m{hex(seq.tell())}----{label}\033[0m')
         if labelindex > 2:
             if len(callreturn) <= 0:
                 mid.write('MTrk'.encode())
-                mid.write((1000).to_bytes(4))
+                mid.write((302302).to_bytes(4))
                 mid.write(b'\x00')
                 mid.write(b'\xFF\x03')
                 mid.write(len(label).to_bytes(1))
@@ -328,9 +333,9 @@ def get_label(i):
                 tick = 0
                 nexttick = 0
     except:
-        if seqtype == b'SSEQ' or seqtype == b'RSEQ': # TODO: make this make sense
+        if seqtype == b'SSEQ': # TODO: make this make sense
             mid.write('MTrk'.encode())
-            mid.write((1000).to_bytes(4))
+            mid.write((302302).to_bytes(4))
             mid.write(b'\x00')
 
             tick = 0
@@ -345,7 +350,7 @@ def parse_header():
     global seqtype
     seqtype = seq.read(4)
     print(f'--------' + seqtype.decode() + '--------')
-
+    
     # 0004 - 0005
     global endian
     endian = seq.read(2)
@@ -361,10 +366,14 @@ def parse_header():
     
     global endianalt
     endianalt = endian
+    global headeroffset
+    headeroffset = 8
     if (seqtype == b'SSEQ' and endian == "little"):
         print('Type: DS')
+        headeroffset = 12
     if (seqtype == b'RSEQ' and endian == "big"):
         print('Type: Wii')
+        headeroffset = 12
     if (seqtype == b'CSEQ' and endian == "little"):
         print('Type: 3DS')
         endianalt = 'big' # 3ds uses big calls/jumps even though its little?
@@ -372,8 +381,11 @@ def parse_header():
         print('Type: Wii U')
     if (seqtype == b'FSEQ' and endian == "little"):
         print('Type: Nintendo Switch')
-
-    if seqtype != b'SSEQ' and seqtype != b'RSEQ':
+    
+    global SEQ_sectionamounts
+    SEQ_sectionamounts = []
+    
+    if seqtype != b'SSEQ':
         # 0006 - 0007
         global hSEQ_length
         hSEQ_length = int.from_bytes(seq.read(2), endian)
@@ -404,18 +416,26 @@ def parse_header():
         if SEQ_version != 1 and SEQ_version != 257 and SEQ_version != 512 and SEQ_version != 65536:
             print(f"\033[93mWARNING: untested version {SEQ_version}\033[0m")
         
-        # 000C - 000F
-        seq.read(4)
-        hSEQ_length -= 4
-
-        # 0010 - 0011
-        global SEQ_sectioncount
-        SEQ_sectioncount = int.from_bytes(seq.read(2), endian)
-        hSEQ_length -= 2
-
-        # 0012 - 0013
+        # 000C - 000D
         seq.read(2)
         hSEQ_length -= 2
+        
+        # 000E - 000F
+        global SEQ_sectioncount
+        if seqtype == b'RSEQ':
+            SEQ_sectioncount = int.from_bytes(seq.read(2), endian)
+        else:
+            seq.read(2)
+        hSEQ_length -= 2
+        
+        if seqtype != b'RSEQ':
+            # 0010 - 0011
+            SEQ_sectioncount = int.from_bytes(seq.read(2), endian)
+            hSEQ_length -= 2
+            
+            # 0012 - 0013
+            seq.read(2)
+            hSEQ_length -= 2
         
         # 0014 - ****
         global SEQ_sectiontypes
@@ -424,47 +444,41 @@ def parse_header():
         SEQ_sectionoffsets = []
         global SEQ_sectionlengths
         SEQ_sectionlengths = []
-
+        
         for i in range(SEQ_sectioncount):
-            # 0000 - 0001
-            SEQ_sectiontypes.append(int.from_bytes(seq.read(2), endian))
-            hSEQ_length -= 2
-
-            # 0002 - 0003
-            seq.read(2)
-            hSEQ_length -= 2
-
+            if seqtype != b'RSEQ':
+                # 0000 - 0001
+                SEQ_sectiontypes.append(int.from_bytes(seq.read(2), endian))
+                hSEQ_length -= 2
+                
+                # 0002 - 0003
+                seq.read(2)
+                hSEQ_length -= 2
+            
             # 0004 - 0007
             SEQ_sectionoffsets.append(int.from_bytes(seq.read(4), endian))
             hSEQ_length -= 4
-
+            
             # 0008 - 000B
             SEQ_sectionlengths.append(int.from_bytes(seq.read(4), endian))
             hSEQ_length -= 4
+        
+        if seqtype == b'RSEQ':
+            SEQ_sectiontypes = [20480, 20481]
         
         print(f'Section types: {SEQ_sectiontypes}')
         print(f'Section offsets: {SEQ_sectionoffsets}')
         print(f'Section lengths: {SEQ_sectionlengths}')
     
     else:
-        # TODO: dont do this
-
         SEQ_sectioncount = 1
         SEQ_sectiontypes = [20480]
-
-        if seqtype == b'SSEQ':
-            SEQ_sectionoffsets = [16]
-            seq.seek(0x14)
-        if seqtype == b'RSEQ':
-            SEQ_sectionoffsets = [32]
-            seq.seek(0x24)
+        SEQ_sectionoffsets = [16]
+        seq.seek(0x14)
         SEQ_sectionlengths = [int.from_bytes(seq.read(4), endian)]
 
 def parse_section_data(offset, length, i):
     header_common(b'DATA', length)
-
-    if seqtype == b'SSEQ' or seqtype == b'RSEQ':
-        seq.read(4) # unknown bytes
 
     global hDATA_tracknumbers
     hDATA_tracknumbers = []
@@ -488,8 +502,10 @@ def parse_section_data(offset, length, i):
 
     global callreturn
     callreturn = []
-    global trackreturn
-    trackreturn = []
+    global opentracknumber
+    opentracknumber = []
+    global opentrackoffset
+    opentrackoffset = []
     
     global done
     done = False
@@ -505,19 +521,24 @@ def parse_section_data(offset, length, i):
         checktick(i)
 
 def parse_section_labl(offset, length, i):
+    global headeroffset
+    
     header_common(b'LABL', length)
-    SEQ_sectionlengths[i] -= 8
-
-    hLABL_labelcount = int.from_bytes(seq.read(4), endian)
+    
+    if seqtype != b'RSEQ':
+        hLABL_labelcount = int.from_bytes(seq.read(4), endian)
+    else:
+        hLABL_labelcount = int.from_bytes(SEQ_sectionamounts[0], endian) # TODO: try and get these beforehand
+    
     print(f'label count: {hLABL_labelcount}')
-    SEQ_sectionlengths[i] -= 4
-
+    
     hLABL_labeloffsets = []
     for ii in range(hLABL_labelcount):
-        seq.read(4)
-        SEQ_sectionlengths[i] -= 4
+        if seqtype != b'RSEQ':
+            seq.read(4)
+        
         hLABL_labeloffsets.append(int.from_bytes(seq.read(4), endian))
-        SEQ_sectionlengths[i] -= 4
+    
     print(f'label offsets: {hexarray(hLABL_labeloffsets)}')
     
     global hLABL_labeldataoffsets
@@ -526,17 +547,21 @@ def parse_section_labl(offset, length, i):
     hLABL_labellengths = []
     global hLABL_labels
     hLABL_labels = []
+    
     for ii in range(len(hLABL_labeloffsets)):
-        while seq.tell() < SEQ_sectionoffsets[i] + hLABL_labeloffsets[ii] + 0x08:
-            seq.read(1)
-            SEQ_sectionlengths[i] -= 1
-        seq.read(4)
-        SEQ_sectionlengths[i] -= 4
+        seq.seek(SEQ_sectionoffsets[i] + hLABL_labeloffsets[ii] + 8) # always 8 even if header size is 12?
+        
+        if seqtype != b'RSEQ':
+            seq.read(4)
         hLABL_labeldataoffsets.append(int.from_bytes(seq.read(4), endian))
-        SEQ_sectionlengths[i] -= 4
+        
         hLABL_labellengths.append(int.from_bytes(seq.read(4), endian))
         hLABL_labels.append(seq.read(hLABL_labellengths[ii]).decode())
-    print(f'label data offsets: {hexarray(hLABL_labeldataoffsets)}, labels: {hLABL_labels}')
+        if seqtype == b'RSEQ':
+            seq.read(1)
+    
+    print(f'label data offsets: {hexarray(hLABL_labeldataoffsets)}')
+    print(f'labels: {hLABL_labels}')
 
 def tomid(infile, outfile):
     global seq
@@ -546,7 +571,7 @@ def tomid(infile, outfile):
         parse_header()
 
         for i in range(SEQ_sectioncount):
-            if seqtype != b'SSEQ' and seqtype != b'RSEQ':
+            if seqtype != b'SSEQ':
                 i = 1 - i # parse LABL before DATA
             seq.seek(SEQ_sectionoffsets[i])
 
