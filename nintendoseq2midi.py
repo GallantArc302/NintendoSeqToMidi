@@ -315,6 +315,7 @@ def get_label(i):
     global tick
     global nexttick
     global headeroffset
+    global mtrk
 
     try:
         labelindex = hLABL_labeldataoffsets.index(seq.tell() - SEQ_sectionoffsets[i] - headeroffset)
@@ -322,6 +323,7 @@ def get_label(i):
         print(f'\n\033[92m{hex(seq.tell())}----{label}\033[0m')
         if labelindex > 2:
             if len(callreturn) <= 0:
+                mtrk.append(mid.tell())
                 mid.write('MTrk'.encode())
                 mid.write((302302).to_bytes(4))
                 mid.write(b'\x00')
@@ -333,7 +335,8 @@ def get_label(i):
                 tick = 0
                 nexttick = 0
     except:
-        if seqtype == b'SSEQ': # TODO: make this make sense
+        if seqtype == b'SSEQ': # TODO: do this without try and except
+            mtrk.append(mid.tell())
             mid.write('MTrk'.encode())
             mid.write((302302).to_bytes(4))
             mid.write(b'\x00')
@@ -506,6 +509,8 @@ def parse_section_data(offset, length, i):
     opentracknumber = []
     global opentrackoffset
     opentrackoffset = []
+    global mtrk
+    mtrk = []
     
     global done
     done = False
@@ -519,6 +524,21 @@ def parse_section_data(offset, length, i):
     
     while not done:
         checktick(i)
+
+def fix_mid_mtrk():
+    global mtrk
+    
+    mtrk.append(mid.tell())
+    print(f'mtrk: {mtrk}')
+    
+    for i in range(len(mtrk) - 1):
+        mid.seek(mtrk[i] + 4)
+        temp = mtrk[i + 1] - mtrk[i] - 8
+        mid.write(temp.to_bytes(4, byteorder="big"))
+    
+    mid.seek(0x0A)
+    temp = len(mtrk) - 1
+    mid.write(temp.to_bytes(2, byteorder="big"))
 
 def parse_section_labl(offset, length, i):
     global headeroffset
@@ -578,6 +598,7 @@ def tomid(infile, outfile):
             if SEQ_sectiontypes[i] == 20480:
                 with open(outfile, 'w+b') as mid:
                     parse_section_data(SEQ_sectionoffsets[i], SEQ_sectionlengths[i], i)
+                    fix_mid_mtrk()
                 
             elif SEQ_sectiontypes[i] == 20481:
                 parse_section_labl(SEQ_sectionoffsets[i], SEQ_sectionlengths[i], i)
