@@ -223,7 +223,11 @@ def parse_command(byte, i):
         case b'\xC7':
             print(f'{hex(seq.tell() - 1)}: notewait {int.from_bytes(seq.read(1), endian)} (not implemented)')
         case b'\xC9':
-            print(f'{hex(seq.tell() - 1)}: porta {int.from_bytes(seq.read(1), endian)} (not implemented)')
+            write_wait()
+            
+            value = int.from_bytes(seq.read(1), endian)
+            print(f'{hex(seq.tell() - 2)}: portamo {value}')
+            midi_cc(channel, 0x05, value)
         case b'\xCA':
             write_wait()
             
