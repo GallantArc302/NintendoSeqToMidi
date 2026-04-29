@@ -131,6 +131,8 @@ def parse_command(byte, i):
             
             opentracknumber.append(hDATA_tracknumbers[len(hDATA_tracknumbers) - 1])
             opentrackoffset.append(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])
+        case b'\x94': # jump? (SSEQ)
+            print(f'{hex(seq.tell() - 1)}: jump? {int.from_bytes(seq.read(3), endianalt)} (not implemented)')
         case b'\x95': # call (SSEQ)
             call = int.from_bytes(seq.read(3), endian) + SEQ_sectionoffsets[i] + headeroffset
             print(f'{hex(seq.tell() - 4)}: call {hex(call)}')
@@ -146,14 +148,18 @@ def parse_command(byte, i):
         case b'\xA3': # UNKNOWN found in nsmbw 0x70E40
             print(f'{hex(seq.tell() - 1)}: UNKNOWN A3')
             seq.read(4)
-        case b'\xB0':
-            SEQ_timebase = seq.read(1)
-            print(f'{hex(seq.tell() - 2)}: timebase {int.from_bytes(SEQ_timebase)}')
-
-            temp = mid.tell()
-            mid.seek(0x0D)
-            mid.write(SEQ_timebase)
-            mid.seek(temp)
+        case b'\xB0': # timebase
+            if seqtype != b'SSEQ':
+                SEQ_timebase = seq.read(1)
+                print(f'{hex(seq.tell() - 2)}: timebase {int.from_bytes(SEQ_timebase)}')
+                
+                temp = mid.tell()
+                mid.seek(0x0D)
+                mid.write(SEQ_timebase)
+                mid.seek(temp)
+            else:
+                print(f'{hex(seq.tell() - 1)}: UNKNOWN B0 (SSEQ)')
+                seq.read(1)
         case b'\xB4': # UNKNOWN found in nsmbw 0x70E40
             print(f'{hex(seq.tell() - 1)}: UNKNOWN B4')
             seq.read(5)
@@ -209,6 +215,8 @@ def parse_command(byte, i):
             
             value = int.from_bytes(seq.read(1), endian)
             print(f'{hex(seq.tell() - 2)}: pitch range {value}')
+            midi_cc(channel, 0x65, 0) # i dont know why it needs these
+            midi_cc(channel, 0x64, 0) # but it doesnt work without it
             midi_cc(channel, 0x06, value)
         case b'\xC6':
             print(f'{hex(seq.tell() - 1)}: priority {int.from_bytes(seq.read(1), endian)} (not implemented)')
