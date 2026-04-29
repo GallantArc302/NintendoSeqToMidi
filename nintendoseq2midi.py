@@ -56,9 +56,9 @@ def write_wait():
     
     mid.seek(mid.tell() - 1)
     
-    if waitedamount < 128:
+    if waitedamount < 0x80:
         mid.write((waitedamount).to_bytes(1))
-    elif waitedamount < 16384:
+    elif waitedamount < 0x4000:
         mid.write((0x80 + (waitedamount >> 7)).to_bytes(1))
         mid.write((waitedamount & 0x7F).to_bytes(1))
     else:
@@ -81,248 +81,315 @@ def parse_command(byte, i):
     global notestick
     global notescommand
     global headeroffset
-
+    
     global done
-
+    
+    location = hex(seq.tell() - 1)
+    
     match byte:
-        case b'\x80':
-            SEQ_wait = int.from_bytes(seq.read(1), endian)
-
-            if SEQ_wait > 127:
-                SEQ_wait = int.from_bytes(seq.read(1), endian)
-                seq.seek(seq.tell() - 2)
-                SEQ_wait += (int.from_bytes(seq.read(1), endian) - 0x80) * 0x80
-                seq.seek(seq.tell() + 1)
-            print(f'{hex(seq.tell() - 2)}: wait {SEQ_wait}')
-            nexttick += SEQ_wait
-            waitamount += SEQ_wait
-        case b'\x81':
+        case b'\x80': # wait
+            value = int.from_bytes(seq.read(1))
+            
+            if value > 0x7F:
+                value = value - 0x80 << 7
+                value += int.from_bytes(seq.read(1))
+            
+            print(f'{location}: wait {value}')
+            
+            nexttick += value
+            waitamount += value
+            
+        case b'\x81': # set instrument
             write_wait()
-
-            SEQ_inst = int.from_bytes(seq.read(1), endian)
-            print(f'{hex(seq.tell() - 2)}: instrument {SEQ_inst}')
-
+            
+            value = int.from_bytes(seq.read(1))
+            
+            print(f'{location}: instrument {value}')
+            
             mid.write((0xC0 + channel).to_bytes(1))
-            mid.write((SEQ_inst).to_bytes(1))
+            mid.write((value).to_bytes(1))
             mid.write(b'\x00')
+            
         case b'\x88': # open track
-            hDATA_tracknumbers.append(int.from_bytes(seq.read(1), endian))
-            
+            hDATA_tracknumbers.append(int.from_bytes(seq.read(1)))
             hDATA_trackoffsets.append(int.from_bytes(seq.read(3), endianalt) + SEQ_sectionoffsets[i] + headeroffset)
-            print(f'{hex(seq.tell() - 5)}: track {hDATA_tracknumbers[len(hDATA_tracknumbers) - 1]} at {hex(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])}')
+            
+            print(f'{location}: track {hDATA_tracknumbers[len(hDATA_tracknumbers) - 1]} at {hex(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])}')
             
             opentracknumber.append(hDATA_tracknumbers[len(hDATA_tracknumbers) - 1])
             opentrackoffset.append(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])
+            get_label(i)
             
-            get_label(i) # TODO: fix, breaks rseq
         case b'\x89': # jump
-            print(f'{hex(seq.tell() - 1)}: jump {int.from_bytes(seq.read(3), endianalt)} (not implemented)')
+            print(f'{location}: jump {int.from_bytes(seq.read(3), endianalt)} (not implemented)')
+            
         case b'\x8A': # call
-            call = int.from_bytes(seq.read(3), endianalt) + SEQ_sectionoffsets[i] + headeroffset
-            print(f'{hex(seq.tell() - 4)}: call {hex(call)}')
+            value = int.from_bytes(seq.read(3), endianalt) + SEQ_sectionoffsets[i] + headeroffset
+            
+            print(f'{location}: call {hex(value)}')
             
             callreturn.append(seq.tell())
-            seq.seek(call)
-        case b'\x93': # open track (SSEQ)
-            hDATA_tracknumbers.append(int.from_bytes(seq.read(1), endian))
+            seq.seek(value)
             
+        case b'\x93': # open track (SSEQ)
+            hDATA_tracknumbers.append(int.from_bytes(seq.read(1)))
             hDATA_trackoffsets.append(int.from_bytes(seq.read(3), endian) + SEQ_sectionoffsets[i] + headeroffset)
-            print(f'{hex(seq.tell() - 5)}: track {hDATA_tracknumbers[len(hDATA_tracknumbers) - 1]} at {hex(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])}')
+            
+            print(f'{location}: track {hDATA_tracknumbers[len(hDATA_tracknumbers) - 1]} at {hex(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])}')
             
             opentracknumber.append(hDATA_tracknumbers[len(hDATA_tracknumbers) - 1])
             opentrackoffset.append(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])
+            
         case b'\x94': # jump? (SSEQ)
-            print(f'{hex(seq.tell() - 1)}: jump? {int.from_bytes(seq.read(3), endianalt)} (not implemented)')
+            print(f'{location}: jump? {int.from_bytes(seq.read(3), endianalt)} (not implemented)')
+            
         case b'\x95': # call (SSEQ)
-            call = int.from_bytes(seq.read(3), endian) + SEQ_sectionoffsets[i] + headeroffset
-            print(f'{hex(seq.tell() - 4)}: call {hex(call)}')
-
+            value = int.from_bytes(seq.read(3), endian) + SEQ_sectionoffsets[i] + headeroffset
+            
+            print(f'{location}: call {hex(value)}')
+            
             callreturn.append(seq.tell())
-            seq.seek(call)
-        case b'\xA0': # UNKNOWN found in tomorrow hill from warioware smooth moves, maybe random pitch?
-            print(f'{hex(seq.tell() - 1)}: UNKNOWN A0')
+            seq.seek(value)
+            
+        case b'\xA0': # random pitch? found in warioware smooth moves SMF_dribble_song_ng_full_us
+            print(f'{location}: UNKNOWN A0')
             seq.read(5)
+            
         case b'\xA2': # UNKNOWN found in luigis mansion SMF_LuigiSings_SR
-            print(f'{hex(seq.tell() - 1)}: UNKNOWN A2')
+            print(f'{location}: UNKNOWN A2')
             seq.read(4)
+            
         case b'\xA3': # UNKNOWN found in nsmbw 0x70E40
-            print(f'{hex(seq.tell() - 1)}: UNKNOWN A3')
+            print(f'{location}: UNKNOWN A3')
             seq.read(4)
-        case b'\xB0': # timebase
+            
+        case b'\xB0': # timebase, UNKNOWN (SSEQ)
             if seqtype != b'SSEQ':
-                SEQ_timebase = seq.read(1)
-                print(f'{hex(seq.tell() - 2)}: timebase {int.from_bytes(SEQ_timebase)}')
+                value = seq.read(1)
+                
+                print(f'{location}: timebase {int.from_bytes(value)}')
                 
                 temp = mid.tell()
                 mid.seek(0x0D)
-                mid.write(SEQ_timebase)
+                mid.write(value)
                 mid.seek(temp)
             else:
-                print(f'{hex(seq.tell() - 1)}: UNKNOWN B0 (SSEQ)')
+                print(f'{location}: UNKNOWN B0 (SSEQ)')
                 seq.read(1)
+            
         case b'\xB4': # UNKNOWN found in nsmbw 0x70E40
-            print(f'{hex(seq.tell() - 1)}: UNKNOWN B4')
+            print(f'{location}: UNKNOWN B4')
             seq.read(5)
-        case b'\xB6': # bank
+            
+        case b'\xB6': # set bank
             write_wait()
             
-            value = int.from_bytes(seq.read(1), endian)
-            print(f'{hex(seq.tell() - 2)}: bank {value}')
+            value = int.from_bytes(seq.read(1))
+            
+            print(f'{location}: bank {value}')
             
             midi_cc(channel, 0x00, value)
-        case b'\xC0': # panning
+            
+        case b'\xC0': # set panning
             write_wait()
             
-            value = int.from_bytes(seq.read(1), endian)
-            print(f'{hex(seq.tell() - 2)}: pan {value}')
+            value = int.from_bytes(seq.read(1))
+            
+            print(f'{location}: pan {value}')
             
             if accurate_mixing: value = round(value + (8 * math.sin((math.pi * value) / 64))) # duno why it does this but it sounds right for minis on the move
-            
             midi_cc(channel, 0x0A, value)
-        case b'\xC1': # volume
+            
+        case b'\xC1': # set volume
             write_wait()
             
-            value = int.from_bytes(seq.read(1), endian)
-            print(f'{hex(seq.tell() - 2)}: volume {value}')
+            value = int.from_bytes(seq.read(1))
             
-            volumeC1[channel] = value / 127
-            if combined_volume: value = round(volumeC1[channel] * volumeC2[channel] * volumeD5[channel] * 127)
+            print(f'{location}: volume {value}')
             
+            if combined_volume:
+                volumeC1[channel] = value / 0x7F
+                value = round(volumeC1[channel] * volumeC2[channel] * volumeD5[channel] * 0x7F)
             midi_cc(channel, 0x07, value)
+            
         case b'\xC2': # found in warioware touched 0x358A0
-            print(f'{hex(seq.tell() - 1)}: master volume? {int.from_bytes(seq.read(1), endian)} (not implemented)')
+            print(f'{location}: master volume? {int.from_bytes(seq.read(1))} (not implemented)')
+            
         case b'\xC3': # UNKNOWN found in nsmbw 0x70E40
-            print(f'{hex(seq.tell() - 1)}: UNKNOWN C3')
+            print(f'{location}: UNKNOWN C3')
             seq.read(1)
+            
         case b'\xC4': # pitch bend
             write_wait()
             
-            value = int.from_bytes(seq.read(1), endian)
+            value = int.from_bytes(seq.read(1))
             
-            print(f'{hex(seq.tell() - 2)}: pitch {value}')
+            print(f'{location}: pitch {value}')
             
-            if value < 128:
-                temp = (value + 128) * 64
+            if value < 0x80:
+                temp = value + 0x80 << 6
             else:
-                temp = (value - 128) * 64
+                temp = value - 0x80 << 6
             
             mid.write((0xE0 + channel).to_bytes(1))
             mid.write((temp & 0x7F).to_bytes(1))
             mid.write((temp >> 7).to_bytes(1))
             mid.write(b'\x00')
+            
         case b'\xC5': # pitch bend range
             write_wait()
             
-            value = int.from_bytes(seq.read(1), endian)
-            print(f'{hex(seq.tell() - 2)}: pitch range {value}')
+            value = int.from_bytes(seq.read(1))
+            
+            print(f'{location}: pitch range {value}')
+            
             midi_cc(channel, 0x65, 0) # i dont know why it needs these
             midi_cc(channel, 0x64, 0) # but it doesnt work without it
             midi_cc(channel, 0x06, value)
+            
         case b'\xC6':
-            print(f'{hex(seq.tell() - 1)}: priority {int.from_bytes(seq.read(1), endian)} (not implemented)')
+            print(f'{location}: priority {int.from_bytes(seq.read(1))} (not implemented)')
+            
         case b'\xC7':
-            print(f'{hex(seq.tell() - 1)}: notewait {int.from_bytes(seq.read(1), endian)} (not implemented)')
-        case b'\xC9':
+            print(f'{location}: notewait {int.from_bytes(seq.read(1))} (not implemented)')
+            
+        case b'\xC9': # portamo
             write_wait()
             
-            value = int.from_bytes(seq.read(1), endian)
-            print(f'{hex(seq.tell() - 2)}: portamo {value}')
+            value = int.from_bytes(seq.read(1))
+            
+            print(f'{location}: portamo {value}')
+            
             midi_cc(channel, 0x05, value)
-        case b'\xCA':
+            
+        case b'\xCA': # mod
             write_wait()
             
-            value = int.from_bytes(seq.read(1), endian)
-            print(f'{hex(seq.tell() - 2)}: mod {value}')
+            value = int.from_bytes(seq.read(1))
+            
+            print(f'{location}: mod {value}')
+            
             midi_cc(channel, 0x01, value)
+            
         case b'\xCB': # UNKNOWN found in mario kart wii SMF_option_ch
-            print(f'{hex(seq.tell() - 1)}: UNKNOWN CB')
+            print(f'{location}: UNKNOWN CB')
             seq.read(1)
+            
         case b'\xCC':
-            print(f'{hex(seq.tell() - 1)}: mod type {int.from_bytes(seq.read(1), endian)} (not implemented)')
+            print(f'{location}: mod type {int.from_bytes(seq.read(1))} (not implemented)')
+            
         case b'\xCD': # UNKNOWN found in mario kart wii SMF_option_ch
-            print(f'{hex(seq.tell() - 1)}: UNKNOWN CD')
+            print(f'{location}: UNKNOWN CD')
             seq.read(1)
+            
         case b'\xCE':
-            print(f'{hex(seq.tell() - 1)}: porta enabled {int.from_bytes(seq.read(1), endian)} (not implemented)')
+            print(f'{location}: porta enabled {int.from_bytes(seq.read(1))} (not implemented)')
+            
         case b'\xCF':
-            print(f'{hex(seq.tell() - 1)}: porta time {int.from_bytes(seq.read(1), endian)} (not implemented)')
-        case b'\xD0':
+            print(f'{location}: porta time {int.from_bytes(seq.read(1))} (not implemented)')
+            
+        case b'\xD0': # attack
             write_wait()
             
-            value = int.from_bytes(seq.read(1), endian)
-            print(f'{hex(seq.tell() - 2)}: attack {value}')
+            value = int.from_bytes(seq.read(1))
+            
+            print(f'{location}: attack {value}')
+            
             midi_cc(channel, 0x49, value)
-        case b'\xD1':
+            
+        case b'\xD1': # decay
             write_wait()
             
-            value = int.from_bytes(seq.read(1), endian)
-            print(f'{hex(seq.tell() - 2)}: decay {value}')
+            value = int.from_bytes(seq.read(1))
+            
+            print(f'{location}: decay {value}')
+            
             midi_cc(channel, 0x4B, value)
-        case b'\xD2':
+            
+        case b'\xD2': # sustain
             write_wait()
             
-            value = int.from_bytes(seq.read(1), endian)
-            print(f'{hex(seq.tell() - 2)}: sustain {value}')
+            value = int.from_bytes(seq.read(1))
+            
+            print(f'{location}: sustain {value}')
+            
             midi_cc(channel, 0x46, value)
-        case b'\xD3':
+            
+        case b'\xD3': # release
             write_wait()
             
-            value = int.from_bytes(seq.read(1), endian)
-            print(f'{hex(seq.tell() - 2)}: release {value}')
+            value = int.from_bytes(seq.read(1))
+            
+            print(f'{location}: release {value}')
+            
             midi_cc(channel, 0x48, value)
-        case b'\xD5':
+            
+        case b'\xD5': # expression
             write_wait()
             
-            value = int.from_bytes(seq.read(1), endian)
-            print(f'{hex(seq.tell() - 2)}: expression {value}')
+            value = int.from_bytes(seq.read(1))
+            
+            print(f'{location}: expression {value}')
             
             if combined_volume:
-                volumeD5[channel] = value / 127
-                value = round(volumeC1[channel] * volumeC2[channel] * volumeD5[channel] * 127)
+                volumeD5[channel] = value / 0x7F
+                value = round(volumeC1[channel] * volumeC2[channel] * volumeD5[channel] * 0x7F)
                 midi_cc(channel, 0x07, value)
             else:
                 midi_cc(channel, 0x0B, value)
+            
         case b'\xD8': # UNKNOWN found in nsmbw 0x70E40, minis on the move 0xE040
-            print(f'{hex(seq.tell() - 1)}: UNKNOWN D8')
+            print(f'{location}: UNKNOWN D8')
             seq.read(1)
+            
         case b'\xD9': # UNKNOWN found in tomorrow hill from warioware smooth moves, mkw 0x39EF40, minis on the move 0xE040
-            print(f'{hex(seq.tell() - 1)}: UNKNOWN D9')
+            print(f'{location}: UNKNOWN D9')
             seq.read(1)
+            
         case b'\xDA':
-            print(f'{hex(seq.tell() - 1)}: fx {int.from_bytes(seq.read(1), endian)} (not implemented)')
+            print(f'{location}: fx {int.from_bytes(seq.read(1))} (not implemented)')
+            
         case b'\xDC': # UNKNOWN found in tomorrow hill from warioware smooth moves, mkw 0x39EF40, minis on the move 0xE040
-            print(f'{hex(seq.tell() - 1)}: UNKNOWN DC')
+            print(f'{location}: UNKNOWN DC')
             seq.read(1)
+            
         case b'\xDE': # UNKNOWN found in tomorrow hill from warioware smooth moves
-            print(f'{hex(seq.tell() - 1)}: UNKNOWN DE')
+            print(f'{location}: UNKNOWN DE')
             seq.read(1)
+            
         case b'\xE0': # UNKNOWN found in super smash bros brawl SMF_Luigi_final
-            print(f'{hex(seq.tell() - 1)}: UNKNOWN E0')
+            print(f'{location}: UNKNOWN E0')
             seq.read(1)
+            
         case b'\xE1': # set bpm
             write_wait()
             
             value = int.from_bytes(seq.read(2), endianalt)
             
-            print(f'{hex(seq.tell() - 3)}: BPM {value}')
+            print(f'{location}: BPM {value}')
             
             mid.write(b'\xFF\x51\x03')
-            mid.write((int(60000000 / value)).to_bytes(3))
+            mid.write((round(60000000 / value)).to_bytes(3))
             mid.write(b'\x00')
+            
         case b'\xF0': # found in nsmbu 0xD3989E0
-            print(f'{hex(seq.tell() - 1)}: set variable, parameters: {int.from_bytes(seq.read(1), endian)}, {int.from_bytes(seq.read(1), endian)}, {int.from_bytes(seq.read(1), endian)}, {int.from_bytes(seq.read(1), endian)}')
+            print(f'{location}: set variable, parameters: {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}')
+            
         case b'\xFD': # return
-            print(f'{hex(seq.tell() - 1)}: return')
+            print(f'{location}: return')
+            
             if len(callreturn) > 0:
                 seq.seek(callreturn.pop(0))
             else:
                 print(f"\033[93mWARNING: nothing to return to!\033[0m")
+            
         case b'\xFE':
-            print(f'{hex(seq.tell() - 1)}: alloc tracks {seq.read(2)} (not implemented)')
+            print(f'{location}: alloc tracks {seq.read(2)} (not implemented)')
+            
         case b'\xFF': # end
             write_wait()
             
-            print(f'{hex(seq.tell() - 1)}: done')
+            print(f'{location}: end track')
             
             mid.write(b'\xFF\x2F\x00')
             
@@ -338,20 +405,17 @@ def parse_command(byte, i):
             
         case _:
             write_wait()
-
-            seq.seek(seq.tell() - 1)
-            if int.from_bytes(seq.read(1), endian) < 0x80:
-                seq.seek(seq.tell() - 1)
-                SEQ_note = int.from_bytes(seq.read(1), endian)
-                SEQ_vel = int.from_bytes(seq.read(1), endian)
-                SEQ_len = int.from_bytes(seq.read(1), endian)
+            
+            if int.from_bytes(byte) < 0x80:
+                SEQ_note = int.from_bytes(byte)
+                SEQ_vel = int.from_bytes(seq.read(1))
+                SEQ_len = int.from_bytes(seq.read(1))
                 
-                if SEQ_len > 127:
-                    SEQ_len = int.from_bytes(seq.read(1), endian)
-                    seq.seek(seq.tell() - 2)
-                    SEQ_len += (int.from_bytes(seq.read(1), endian) - 0x80) * 0x80
-                    seq.seek(seq.tell() + 1)
-                print(f'{hex(seq.tell() - 3)}: play note {SEQ_note} with velocity {SEQ_vel} for {SEQ_len} ticks')
+                if SEQ_len > 0x7F:
+                    SEQ_len = SEQ_len - 0x80 << 7
+                    SEQ_len += int.from_bytes(seq.read(1))
+                
+                print(f'{location}: play note {SEQ_note} with velocity {SEQ_vel} for {SEQ_len} ticks')
                 
                 notestick.append(tick + SEQ_len)
                 notescommand.append((0x80 + channel).to_bytes(1) + (SEQ_note).to_bytes(1) + (SEQ_vel).to_bytes(1) + b'\x00')
@@ -366,8 +430,7 @@ def parse_command(byte, i):
                 mid.write((SEQ_vel).to_bytes(1))
                 mid.write(b'\x00')
             else:
-                seq.seek(seq.tell() - 1)
-                print(f'\033[91m{hex(seq.tell())}: unknown command {seq.read(1)}\033[0m')
+                print(f'\033[91m{location}: unknown command {byte}\033[0m')
 
 def midi_cc(channel, control, value):
     mid.write((0xB0 + channel).to_bytes(1))
@@ -380,7 +443,7 @@ def get_label(i):
     global nexttick
     global headeroffset
     global mtrk
-
+    
     try:
         labelindex = hLABL_labeldataoffsets.index(seq.tell() - SEQ_sectionoffsets[i] - headeroffset)
         label = hLABL_labels[labelindex]
@@ -395,7 +458,7 @@ def get_label(i):
                 mid.write(len(label).to_bytes(1))
                 mid.write((label).encode())
                 mid.write(b'\x00')
-
+                
                 tick = 0
                 nexttick = 0
     except:
@@ -404,7 +467,7 @@ def get_label(i):
             mid.write('MTrk'.encode())
             mid.write((302302).to_bytes(4))
             mid.write(b'\x00')
-
+            
             tick = 0
             nexttick = 0
         else:
@@ -577,11 +640,11 @@ def parse_section_data(offset, length, i):
     mtrk = []
     
     global volumeC1
-    volumeC1 = [100 / 127] * 16
+    volumeC1 = [100 / 0x7F] * 16
     global volumeC2
-    volumeC2 = [127 / 127] * 16
+    volumeC2 = [127 / 0x7F] * 16
     global volumeD5
-    volumeD5 = [127 / 127] * 16
+    volumeD5 = [127 / 0x7F] * 16
     
     global done
     done = False
