@@ -1,5 +1,6 @@
 import sys
 import math
+import random
 
 global accurate_mixing
 accurate_mixing = True
@@ -84,7 +85,8 @@ def parse_command(byte, i):
     
     global done
     
-    location = hex(seq.tell() - 1)
+    locationint = seq.tell() - 1
+    location = hex(locationint)
     
     match byte:
         case b'\x80': # wait
@@ -151,9 +153,37 @@ def parse_command(byte, i):
             callreturn.append(seq.tell())
             seq.seek(value)
             
-        case b'\xA0': # random pitch? found in warioware smooth moves SMF_dribble_song_ng_full_us
-            print(f'{location}: UNKNOWN A0')
-            seq.read(5)
+        case b'\xA0': # random? found in warioware smooth moves SMF_dribble_song_ng_full_us
+            command = seq.read(1) # TODO: figure out a way to make this work with any command
+            valuelow = int.from_bytes(seq.read(2), endian)
+            valuehigh = int.from_bytes(seq.read(2), endian)
+            
+            if valuelow > 0x8000:
+                valuelow -= 0x10000
+            if valuehigh > 0x8000:
+                valuehigh -= 0x10000
+            
+            random.seed(locationint)
+            value = random.randint(valuelow, valuehigh)
+            
+            print(f'{location}: random {command}, range from {valuelow} to {valuehigh}, random value: {value}')
+            
+            if command == b'\xC0':
+                write_wait()
+                
+                if accurate_mixing: value = round(value + (8 * math.sin((math.pi * value) / 64))) # duno why it does this but it sounds right for minis on the move
+                midi_cc(channel, 0x0A, value)
+            
+            if command == b'\xC3':
+                write_wait()
+                
+                value += 12
+                value = round(value * (16384 / 24))
+                
+                mid.write((0xE0 + channel).to_bytes(1))
+                mid.write((value & 0x7F).to_bytes(1))
+                mid.write((value >> 7).to_bytes(1))
+                mid.write(b'\x00')
             
         case b'\xA2': # UNKNOWN found in luigis mansion SMF_LuigiSings_SR
             print(f'{location}: UNKNOWN A2')
@@ -215,9 +245,8 @@ def parse_command(byte, i):
         case b'\xC2': # found in warioware touched 0x358A0
             print(f'{location}: master volume? {int.from_bytes(seq.read(1))} (not implemented)')
             
-        case b'\xC3': # UNKNOWN found in nsmbw 0x70E40
-            print(f'{location}: UNKNOWN C3')
-            seq.read(1)
+        case b'\xC3': # found in warioware smooth moves SMF_dribble_song_ng_full_us and nsmbw 0x70E40
+            print(f'{location}: transpose {int.from_bytes(seq.read(1))} (not implemented)')
             
         case b'\xC4': # pitch bend
             write_wait()
