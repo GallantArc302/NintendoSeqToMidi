@@ -3,6 +3,8 @@ import math
 
 global accurate_mixing
 accurate_mixing = False
+global combined_volume
+combined_volume = True
 
 def hexarray(array):
     return '[{}]'.format(', '.join(hex(x) for x in array))
@@ -137,6 +139,9 @@ def parse_command(byte, i):
         case b'\xA0': # UNKNOWN found in tomorrow hill from warioware smooth moves, maybe random pitch?
             print(f'{hex(seq.tell() - 1)}: UNKNOWN A0')
             seq.read(5)
+        case b'\xA2': # UNKNOWN found in luigis mansion SMF_LuigiSings_SR
+            print(f'{hex(seq.tell() - 1)}: UNKNOWN A2')
+            seq.read(4)
         case b'\xA3': # UNKNOWN found in nsmbw 0x70E40
             print(f'{hex(seq.tell() - 1)}: UNKNOWN A3')
             seq.read(4)
@@ -196,6 +201,8 @@ def parse_command(byte, i):
             print(f'{hex(seq.tell() - 1)}: priority {int.from_bytes(seq.read(1), endian)} (not implemented)')
         case b'\xC7':
             print(f'{hex(seq.tell() - 1)}: notewait {int.from_bytes(seq.read(1), endian)} (not implemented)')
+        case b'\xC9':
+            print(f'{hex(seq.tell() - 1)}: porta {int.from_bytes(seq.read(1), endian)} (not implemented)')
         case b'\xCA':
             print(f'{hex(seq.tell() - 1)}: mod depth {int.from_bytes(seq.read(1), endian)} (not implemented)')
         case b'\xCB': # UNKNOWN found in mario kart wii SMF_option_ch
@@ -207,7 +214,7 @@ def parse_command(byte, i):
             print(f'{hex(seq.tell() - 1)}: UNKNOWN CD')
             seq.read(1)
         case b'\xCE':
-            print(f'{hex(seq.tell() - 1)}: porta {int.from_bytes(seq.read(1), endian)} (not implemented)')
+            print(f'{hex(seq.tell() - 1)}: porta enabled {int.from_bytes(seq.read(1), endian)} (not implemented)')
         case b'\xCF':
             print(f'{hex(seq.tell() - 1)}: porta time {int.from_bytes(seq.read(1), endian)} (not implemented)')
         case b'\xD0':
@@ -236,8 +243,14 @@ def parse_command(byte, i):
             seq.read(1)
         case b'\xDA':
             print(f'{hex(seq.tell() - 1)}: fx {int.from_bytes(seq.read(1), endian)} (not implemented)')
+        case b'\xDC': # UNKNOWN found in tomorrow hill from warioware smooth moves, mkw 0x39EF40, minis on the move 0xE040
+            print(f'{hex(seq.tell() - 1)}: UNKNOWN DC')
+            seq.read(1)
         case b'\xDE': # UNKNOWN found in tomorrow hill from warioware smooth moves
             print(f'{hex(seq.tell() - 1)}: UNKNOWN DE')
+            seq.read(1)
+        case b'\xE0': # UNKNOWN found in super smash bros brawl SMF_Luigi_final
+            print(f'{hex(seq.tell() - 1)}: UNKNOWN E0')
             seq.read(1)
         case b'\xE1': # set bpm
             write_wait()
