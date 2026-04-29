@@ -282,14 +282,14 @@ def parse_command(byte, i):
         case b'\xC7':
             print(f'{location}: notewait {int.from_bytes(seq.read(1))} (not implemented)')
             
-        case b'\xC9': # portamo
+        case b'\xC9': # portamento
             write_wait()
             
             value = int.from_bytes(seq.read(1))
             
-            print(f'{location}: portamo {value}')
+            print(f'{location}: portamento {value}')
             
-            midi_cc(channel, 0x05, value)
+            midi_cc(channel, 0x54, value)
             
         case b'\xCA': # mod
             write_wait()
@@ -312,10 +312,22 @@ def parse_command(byte, i):
             seq.read(1)
             
         case b'\xCE':
-            print(f'{location}: porta enabled {int.from_bytes(seq.read(1))} (not implemented)')
+            write_wait()
+            
+            value = int.from_bytes(seq.read(1))
+            
+            print(f'{location}: portamento enabled {value}')
+            
+            midi_cc(channel, 0x41, value << 6)
             
         case b'\xCF':
-            print(f'{location}: porta time {int.from_bytes(seq.read(1))} (not implemented)')
+            write_wait()
+            
+            value = int.from_bytes(seq.read(1))
+            
+            print(f'{location}: portamento time {value}')
+            
+            midi_cc(channel, 0x25, value)
             
         case b'\xD0': # attack
             write_wait()
