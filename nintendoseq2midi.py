@@ -224,7 +224,7 @@ def parse_command(byte, i):
                 mid.write((value >> 7).to_bytes(1))
                 mid.write(b'\x00')
             
-        case b'\xA2': # UNKNOWN found in luigis mansion SMF_LuigiSings_SR
+        case b'\xA2': # UNKNOWN, SMF_LuigiSings_SR
             print(f'{location}: UNKNOWN A2')
             seq.read(4)
             
@@ -242,7 +242,7 @@ def parse_command(byte, i):
                 mid.seek(0x0D)
                 mid.write(value)
                 mid.seek(temp)
-            else:
+            else: # UNKNOWN, mkds F780
                 print(f'{location}: UNKNOWN B0 (SSEQ)')
                 seq.read(1)
             
@@ -281,10 +281,10 @@ def parse_command(byte, i):
                 value = round(volumeC1[channel] * volumeC2[channel] * volumeD5[channel] * 0x7F)
             midi_cc(channel, 0x07, value)
             
-        case b'\xC2': # found in warioware touched 0x358A0
+        case b'\xC2': # master volume, wwt 358A0
             print(f'{location}: master volume? {int.from_bytes(seq.read(1))} (not implemented)')
             
-        case b'\xC3': # found in warioware smooth moves SMF_dribble_song_ng_full_us and nsmbw 0x70E40
+        case b'\xC3': # transpose, SMF_dribble_song_ng_full_us
             print(f'{location}: transpose {int.from_bytes(seq.read(1))} (not implemented)')
             
         case b'\xC4': # pitch bend
@@ -315,14 +315,14 @@ def parse_command(byte, i):
             midi_cc(channel, 0x64, 0) # but it doesnt work without it
             midi_cc(channel, 0x06, value)
             
-        case b'\xC6':
+        case b'\xC6': # priority
             print(f'{location}: priority {int.from_bytes(seq.read(1))} (not implemented)')
             
-        case b'\xC7':
+        case b'\xC7': # note wait (start of track?)
             seq.seek(seq.tell() - 1)
             get_label(i)
             seq.read(1)
-            print(f'{location}: notewait {int.from_bytes(seq.read(1))} (not implemented)')
+            print(f'{location}: note wait {int.from_bytes(seq.read(1))}')
             
         case b'\xC9': # portamento
             write_wait()
@@ -342,7 +342,7 @@ def parse_command(byte, i):
             
             midi_cc(channel, 0x01, value) # may be 0x4D?
             
-        case b'\xCB': # vibrato speed, found in mario kart wii SMF_option_ch, SMF_Clone_MansionRoom2
+        case b'\xCB': # vibrato speed, SMF_option_ch, SMF_Clone_MansionRoom2
             write_wait()
             
             value = int.from_bytes(seq.read(1))
@@ -354,7 +354,7 @@ def parse_command(byte, i):
         case b'\xCC': # vibrato type
             print(f'{location}: vibrato type {int.from_bytes(seq.read(1))} (not implemented)')
             
-        case b'\xCD': # vibrato range, found in mario kart wii SMF_option_ch, SMF_Clone_MansionRoom2
+        case b'\xCD': # vibrato range, SMF_option_ch, SMF_Clone_MansionRoom2
             write_wait()
             
             value = int.from_bytes(seq.read(1))
@@ -431,25 +431,25 @@ def parse_command(byte, i):
             else:
                 midi_cc(channel, 0x0B, value)
             
-        case b'\xD8': # UNKNOWN found in nsmbw 0x70E40, minis on the move 0xE040
+        case b'\xD8': # UNKNOWN, SMF_apacible
             print(f'{location}: UNKNOWN D8')
             seq.read(1)
             
-        case b'\xD9': # UNKNOWN found in tomorrow hill from warioware smooth moves, mkw 0x39EF40, minis on the move 0xE040, SMF_Clone_MansionRoom2
+        case b'\xD9': # UNKNOWN, used in a lot of songs
             print(f'{location}: fxa {int.from_bytes(seq.read(1))} (not implemented)')
             
-        case b'\xDA':
+        case b'\xDA': # UNKNOWN, used in a lot of songs
             print(f'{location}: fxb {int.from_bytes(seq.read(1))} (not implemented)')
             
-        case b'\xDC': # UNKNOWN found in tomorrow hill from warioware smooth moves, mkw 0x39EF40, minis on the move 0xE040
+        case b'\xDC': # UNKNOWN, SMF_Tittle, SMF_OyamaLab_SR, SMF_Select_SR
             print(f'{location}: UNKNOWN DC')
             seq.read(1)
             
-        case b'\xDE': # UNKNOWN found in tomorrow hill from warioware smooth moves
+        case b'\xDE': # UNKNOWN, all of mario kart wii, SMF_DonkeyKong_Final, SMF_dribble_song_full_us, SMF_dribble_song_ng_full_us
             print(f'{location}: UNKNOWN DE')
             seq.read(1)
             
-        case b'\xE0': # UNKNOWN found in super smash bros brawl SMF_Luigi_final
+        case b'\xE0': # UNKNOWN, all of ace attorney, SMF_Luigi_final
             print(f'{location}: UNKNOWN E0')
             seq.read(1)
             
@@ -464,7 +464,7 @@ def parse_command(byte, i):
             mid.write((round(60000000 / value)).to_bytes(3))
             mid.write(b'\x00')
             
-        case b'\xF0': # found in nsmbu 0xD3989E0
+        case b'\xF0': # UNKNOWN, all of luigis mansion
             print(f'{location}: set variable, parameters: {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}')
             
         case b'\xFD': # return
