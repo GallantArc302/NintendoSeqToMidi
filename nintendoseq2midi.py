@@ -384,7 +384,7 @@ def parse_command(byte, i):
             
             print(f'{location}: attack {value}')
             
-            midi_cc(channel, 0x49, value)
+            midi_cc(channel, 0x49, 0x7F - value)
             
         case b'\xD1': # decay
             write_wait()
