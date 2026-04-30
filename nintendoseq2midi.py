@@ -114,6 +114,10 @@ def parse_command(byte, i):
             
             value = int.from_bytes(seq.read(1))
             
+            if value > 0x7F:
+                value = value - 0x80 << 7
+                value += int.from_bytes(seq.read(1))
+            
             print(f'{location}: instrument {value}')
             
             mid.write((0xC0 + channel).to_bytes(1))
