@@ -9,8 +9,8 @@ combined_volume = False
 
 global failed_return_end # failsafe incase of incorrectly managed sequence files (such as songs from Mario and Donkey Kong: Minis on the Move)
 failed_return_end = True
-global ignore_jump # includes unused portions of some songs (such as songs from Mario and Donkey Kong: Minis on the Move)
-ignore_jump = False
+global ignore_jump # includes unused portions of some songs (such as songs from Mario and Donkey Kong: Minis on the Move). Disabling breaks SMF_LuigiSings_SR
+ignore_jump = True
 global past_jump_end # breaks out of infinite loops
 past_jump_end = True
 
@@ -411,7 +411,7 @@ def parse_command(byte, i):
             
             print(f'{location}: release {value}')
             
-            midi_cc(channel, 0x48, value)
+            midi_cc(channel, 0x48, 0x7F - value)
             
         case b'\xD5': # expression
             write_wait()

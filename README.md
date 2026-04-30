@@ -7,3 +7,4 @@ currently very bad code but working to make it better<br>
 
 ## TODO:
 	include the rest of the unknown commands
+	add proper loop detection
