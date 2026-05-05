@@ -1,6 +1,6 @@
 del log.txt
 
-for %%i in (*.bsseq *.brseq *.bcseq *.bfseq *.bseq) do (
+for %%i in (*.bsseq *.brseq *.bcseq *.bfseq *.bseq *.sseq) do (
 	echo %%i >> log.txt
 	python nintendoseq2midi.py "%%i" "%%~ni.mid" >> log.txt
 )
