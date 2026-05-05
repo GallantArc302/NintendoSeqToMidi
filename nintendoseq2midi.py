@@ -204,8 +204,10 @@ def parse_command(byte, i):
             opentracknumber.append(hDATA_tracknumbers[len(hDATA_tracknumbers) - 1])
             opentrackoffset.append(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])
             
-        case b'\x94': # jump? (SSEQ)
-            print(f'{location}: jump? {int.from_bytes(seq.read(3), endianalt)} (not implemented)')
+        case b'\x94': # jump (SSEQ)
+            value = int.from_bytes(seq.read(3), endianalt) + SEQ_sectionoffsets[i] + headeroffset
+            
+            print(f'{location}: jump {hex(value)} (not implemented)')
             
         case b'\x95': # call (SSEQ)
             value = int.from_bytes(seq.read(3), endian) + SEQ_sectionoffsets[i] + headeroffset
@@ -260,8 +262,7 @@ def parse_command(byte, i):
                 mid.write(value)
                 mid.seek(temp)
             else: # UNKNOWN, mkds F780
-                print(f'{location}: UNKNOWN B0 (SSEQ)')
-                seq.read(1)
+                print(f'{location}: set variable, parameters: {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}')
             
         case b'\xB4': # UNKNOWN found in nsmbw 0x70E40
             print(f'{location}: UNKNOWN B4')
@@ -817,7 +818,7 @@ def parse_section_data(offset, length, i):
     pitchCF = [0] * 16
     
     global pitchcombinedrange
-    pitchcombinedrange = 32 # 24 is too low for wwdiy 2BB00
+    pitchcombinedrange = 2 ** 5 # ~32 is needed for wwdiy 2BB00
     global previouspitch
     previouspitch = [8192] * 16
     global vibratotime
