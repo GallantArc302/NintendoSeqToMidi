@@ -202,7 +202,10 @@ def parse_command(byte, i):
                     midi_pitch_range(channel, 12)
                     midi_pitch(channel, value)
             
-        case b'\xA2': # UNKNOWN, SMF_LuigiSings_SR
+        case b'\xA1': # UNKNOWN, BGM_AMB_SKY
+            print(f'{locationhex}: UNKNOWN A1')
+            
+        case b'\xA2': # UNKNOWN, BGM_AMB_SKY, SMF_LuigiSings_SR
             print(f'{locationhex}: UNKNOWN A2')
             seq.read(4)
             
@@ -223,6 +226,14 @@ def parse_command(byte, i):
             else: # UNKNOWN, mkds F780
                 print(f'{locationhex}: set variable, parameters: {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}')
             
+        case b'\xB1': # UNKNOWN add var?, BGM_AMB_SKY
+            print(f'{locationhex}: UNKNOWN B1')
+            seq.read(3)
+            
+        case b'\xB2': # UNKNOWN sub var?, BGM_AMB_SKY
+            print(f'{locationhex}: UNKNOWN B2')
+            seq.read(3)
+            
         case b'\xB4': # UNKNOWN found in nsmbw 0x70E40
             print(f'{locationhex}: UNKNOWN B4')
             seq.read(5)
@@ -233,6 +244,14 @@ def parse_command(byte, i):
             print(f'{locationhex}: bank {value}')
             
             midi_cc(channel, 0x00, value)
+            
+        case b'\xBA': # UNKNOWN, BGM_AMB_SKY
+            print(f'{locationhex}: UNKNOWN BA')
+            seq.read(3)
+            
+        case b'\xBC': # UNKNOWN, BGM_AMB_SKY
+            print(f'{locationhex}: UNKNOWN BC')
+            seq.read(3)
             
         case b'\xC0': # set panning
             value = read_7bit()
@@ -311,6 +330,9 @@ def parse_command(byte, i):
             if combined_pitch:
                 midi_pitch_range(channel, pitchcombinedrange)
                 midi_pitch(channel, previouspitch[channel])
+            
+        case b'\xC8': # UNKNOWN, BGM_AMB_WATER
+            print(f'{locationhex}: UNKNOWN C8 {int.from_bytes(seq.read(1))} (not implemented)')
             
         case b'\xC9': # portamento
             value = read_7bit()
