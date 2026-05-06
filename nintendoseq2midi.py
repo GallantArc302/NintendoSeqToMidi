@@ -81,72 +81,34 @@ def checktick(i):
             notescommand.pop(0)
     else:
         byte = seq.read(1)
-        SEQ_sectionlengths[i] -= 1
         parse_command(byte, i)
-
-def write_wait():
-    global mid
-    global waitamount
-    global waittick
-    global tick
-
-    waitedamount = tick - waittick # how much has been waited so far
-    
-    mid.seek(mid.tell() - 1)
-    
-    if waitedamount < 0x80:
-        mid.write((waitedamount).to_bytes(1))
-    elif waitedamount < 0x4000:
-        mid.write((0x80 + (waitedamount >> 7)).to_bytes(1))
-        mid.write((waitedamount & 0x7F).to_bytes(1))
-    else:
-        mid.write((0x80 + (waitedamount >> 14)).to_bytes(1))
-        mid.write((0x80 + (waitedamount >> 7 & 0x7F)).to_bytes(1))
-        mid.write((waitedamount & 0x7F).to_bytes(1))
-    
-    waittick = tick
-    waitamount -= waitedamount
 
 def parse_command(byte, i):
     global tick
     global nexttick
     global notestick
-    global waitamount
     global waittick
     global channel
-    global opentracknumber
-    global opentrackoffset
-    global callreturn
     global notescommand
     global headeroffset
-    global allocated
     
     global done
     
-    locationint = seq.tell() - 1
-    location = hex(locationint)
+    location = seq.tell() - 1
+    locationhex = hex(location)
     
     match byte:
         case b'\x80': # wait
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            if value > 0x7F:
-                value = value - 0x80 << 7
-                value += int.from_bytes(seq.read(1))
-            
-            print(f'{location}: wait {value}')
+            print(f'{locationhex}: wait {value}')
             
             nexttick += value
-            waitamount += value
             
         case b'\x81': # set instrument
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            if value > 0x7F:
-                value = value - 0x80 << 7
-                value += int.from_bytes(seq.read(1))
-            
-            print(f'{location}: instrument {value}')
+            print(f'{locationhex}: instrument {value}')
             
             write_wait()
             mid.write((0xC0 + channel).to_bytes(1))
@@ -157,7 +119,7 @@ def parse_command(byte, i):
             hDATA_tracknumbers.append(int.from_bytes(seq.read(1)))
             hDATA_trackoffsets.append(int.from_bytes(seq.read(3), endianalt) + SEQ_sectionoffsets[i] + headeroffset)
             
-            print(f'{location}: track {hDATA_tracknumbers[len(hDATA_tracknumbers) - 1]} at {hex(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])}')
+            print(f'{locationhex}: track {hDATA_tracknumbers[len(hDATA_tracknumbers) - 1]} at {hex(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])}')
             
             opentracknumber.append(hDATA_tracknumbers[len(hDATA_tracknumbers) - 1])
             opentrackoffset.append(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])
@@ -165,7 +127,7 @@ def parse_command(byte, i):
         case b'\x89': # jump
             value = int.from_bytes(seq.read(3), endianalt) + SEQ_sectionoffsets[i] + headeroffset
             
-            print(f'{location}: jump {hex(value)}')
+            print(f'{locationhex}: jump {hex(value)}')
             
             if not ignore_jump:
                 if past_jump_end and value < seq.tell():
@@ -173,9 +135,6 @@ def parse_command(byte, i):
                     
                     write_wait()
                     mid.write(b'\xFF\x2F\x00')
-                    
-                    waittick = 0
-                    waitamount = 0
                     
                     if len(opentracknumber) > 0:
                         channel = opentracknumber.pop(0)
@@ -189,7 +148,7 @@ def parse_command(byte, i):
         case b'\x8A': # call
             value = int.from_bytes(seq.read(3), endianalt) + SEQ_sectionoffsets[i] + headeroffset
             
-            print(f'{location}: call {hex(value)}')
+            print(f'{locationhex}: call {hex(value)}')
             
             callreturn.append(seq.tell())
             seq.seek(value)
@@ -199,7 +158,7 @@ def parse_command(byte, i):
             hDATA_tracknumbers.append(int.from_bytes(seq.read(1)))
             hDATA_trackoffsets.append(int.from_bytes(seq.read(3), endian) + SEQ_sectionoffsets[i] + headeroffset)
             
-            print(f'{location}: track {hDATA_tracknumbers[len(hDATA_tracknumbers) - 1]} at {hex(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])}')
+            print(f'{locationhex}: track {hDATA_tracknumbers[len(hDATA_tracknumbers) - 1]} at {hex(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])}')
             
             opentracknumber.append(hDATA_tracknumbers[len(hDATA_tracknumbers) - 1])
             opentrackoffset.append(hDATA_trackoffsets[len(hDATA_trackoffsets) - 1])
@@ -207,12 +166,12 @@ def parse_command(byte, i):
         case b'\x94': # jump (SSEQ)
             value = int.from_bytes(seq.read(3), endianalt) + SEQ_sectionoffsets[i] + headeroffset
             
-            print(f'{location}: jump {hex(value)} (not implemented)')
+            print(f'{locationhex}: jump {hex(value)} (not implemented)')
             
         case b'\x95': # call (SSEQ)
             value = int.from_bytes(seq.read(3), endian) + SEQ_sectionoffsets[i] + headeroffset
             
-            print(f'{location}: call {hex(value)}')
+            print(f'{locationhex}: call {hex(value)}')
             
             callreturn.append(seq.tell())
             seq.seek(value)
@@ -225,10 +184,10 @@ def parse_command(byte, i):
             valuelow = (valuelow & 0x7FFF) - (valuelow & 0x8000)
             valuehigh = (valuehigh & 0x7FFF) - (valuehigh & 0x8000)
             
-            random.seed(locationint)
+            random.seed(location)
             value = random.randint(valuelow, valuehigh)
             
-            print(f'{location}: random {command}, range from {valuelow} to {valuehigh}, random value: {value}')
+            print(f'{locationhex}: random {command}, range from {valuelow} to {valuehigh}, random value: {value}')
             
             if command == b'\xC0':
                 if accurate_mixing: value = round(value + (8 * math.sin((math.pi * value) / 64)))
@@ -244,49 +203,49 @@ def parse_command(byte, i):
                     midi_pitch(channel, value)
             
         case b'\xA2': # UNKNOWN, SMF_LuigiSings_SR
-            print(f'{location}: UNKNOWN A2')
+            print(f'{locationhex}: UNKNOWN A2')
             seq.read(4)
             
         case b'\xA3': # UNKNOWN found in nsmbw 0x70E40
-            print(f'{location}: UNKNOWN A3')
+            print(f'{locationhex}: UNKNOWN A3')
             seq.read(4)
             
         case b'\xB0': # timebase, UNKNOWN (SSEQ)
             if seqtype != b'SSEQ':
                 value = seq.read(1)
                 
-                print(f'{location}: timebase {int.from_bytes(value)}')
+                print(f'{locationhex}: timebase {int.from_bytes(value)}')
                 
                 temp = mid.tell()
                 mid.seek(0x0D)
                 mid.write(value)
                 mid.seek(temp)
             else: # UNKNOWN, mkds F780
-                print(f'{location}: set variable, parameters: {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}')
+                print(f'{locationhex}: set variable, parameters: {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}')
             
         case b'\xB4': # UNKNOWN found in nsmbw 0x70E40
-            print(f'{location}: UNKNOWN B4')
+            print(f'{locationhex}: UNKNOWN B4')
             seq.read(5)
             
         case b'\xB6': # set bank
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: bank {value}')
+            print(f'{locationhex}: bank {value}')
             
             midi_cc(channel, 0x00, value)
             
         case b'\xC0': # set panning
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: pan {value}')
+            print(f'{locationhex}: pan {value}')
             
             if accurate_mixing: value = round(value + (8 * math.sin((math.pi * value) / 64))) # duno why it does this but it sounds right for minis on the move
             midi_cc(channel, 0x0A, value)
             
         case b'\xC1': # set volume
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: volume {value}')
+            print(f'{locationhex}: volume {value}')
             
             if combined_volume:
                 volumeC1[channel] = value
@@ -294,26 +253,26 @@ def parse_command(byte, i):
                 midi_cc(channel, 0x07, value)
             
         case b'\xC2': # master volume, wwt 358A0
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: master volume {value} (not implemented)')
+            print(f'{locationhex}: master volume {value} (not implemented)')
             
             if combined_volume:
                 volumeC2[channel] = value
             
         case b'\xC3': # transpose, SMF_dribble_song_ng_full_us
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: transpose {value} (only with combined_pitch)')
+            print(f'{locationhex}: transpose {value} (only with combined_pitch)')
             
             if combined_pitch:
                 pitchC3[channel] = value
             
         case b'\xC4': # pitch bend
-            value = int.from_bytes(seq.read(1))
-            value = (value & 0x7F) - (value & 0x80)
+            value = int.from_bytes(seq.read(1)) # 8 bit
+            value = (value & 0x7F) - (value & 0x80) # signed
             
-            print(f'{location}: pitch {value}')
+            print(f'{locationhex}: pitch {value}')
             
             if combined_pitch:
                 pitchC4[channel] = value
@@ -323,9 +282,9 @@ def parse_command(byte, i):
                 midi_pitch(channel, value)
             
         case b'\xC5': # pitch bend range
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: pitch range {value}')
+            print(f'{locationhex}: pitch range {value}')
             
             if combined_pitch:
                 pitchC5[channel] = value
@@ -333,14 +292,18 @@ def parse_command(byte, i):
                 midi_pitch_range(channel, value)
             
         case b'\xC6': # priority
-            print(f'{location}: priority {int.from_bytes(seq.read(1))} (not implemented)')
+            print(f'{locationhex}: priority {int.from_bytes(seq.read(1))} (not implemented)')
             
         case b'\xC7': # note wait (start of track?)
             seq.seek(seq.tell() - 1)
             get_label(i)
             seq.read(1)
             
-            print(f'{location}: note wait {int.from_bytes(seq.read(1))}')
+            print(f'{locationhex}: note wait {int.from_bytes(seq.read(1))}')
+            
+            tick = 0
+            nexttick = 0
+            waittick = 0
             
             if combined_volume:
                 midi_cc(channel, 0x07, previousvolume[channel])
@@ -350,9 +313,9 @@ def parse_command(byte, i):
                 midi_pitch(channel, previouspitch[channel])
             
         case b'\xC9': # portamento
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: portamento {value}')
+            print(f'{locationhex}: portamento {value}')
             
             if combined_pitch:
                 pitchC9[channel] = value
@@ -360,9 +323,9 @@ def parse_command(byte, i):
                 midi_cc(channel, 0x54, value)
             
         case b'\xCA': # vibrato depth
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: vibrato depth {value}')
+            print(f'{locationhex}: vibrato depth {value}')
             
             if combined_pitch:
                 pitchCA[channel] = value
@@ -370,9 +333,9 @@ def parse_command(byte, i):
                 midi_cc(channel, 0x01, value) # may be 0x4D?
             
         case b'\xCB': # vibrato speed, SMF_option_ch, SMF_Clone_MansionRoom2
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: vibrato speed {value}')
+            print(f'{locationhex}: vibrato speed {value}')
             
             if combined_pitch:
                 pitchCB[channel] = value
@@ -380,17 +343,17 @@ def parse_command(byte, i):
                 midi_cc(channel, 0x4C, value)
             
         case b'\xCC': # vibrato type
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: vibrato type {value} (not implemented)')
+            print(f'{locationhex}: vibrato type {value} (not implemented)')
             
             if combined_pitch:
                 pitchCC[channel] = value
             
         case b'\xCD': # vibrato range, SMF_option_ch, SMF_Clone_MansionRoom2
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: vibrato range {value}')
+            print(f'{locationhex}: vibrato range {value}')
             
             if combined_pitch:
                 pitchCD[channel] = value
@@ -398,9 +361,9 @@ def parse_command(byte, i):
                 midi_cc(channel, 0x4D, value) # may not be 0x4D?
             
         case b'\xCE': # portamento enabled
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: portamento enabled {value}')
+            print(f'{locationhex}: portamento enabled {value}')
             
             if combined_pitch:
                 pitchCE[channel] = value
@@ -408,9 +371,9 @@ def parse_command(byte, i):
                 midi_cc(channel, 0x41, value << 6)
             
         case b'\xCF': # portamento time
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: portamento time {value}')
+            print(f'{locationhex}: portamento time {value}')
             
             if combined_pitch:
                 pitchCF[channel] = value
@@ -418,37 +381,37 @@ def parse_command(byte, i):
                 midi_cc(channel, 0x25, value)
             
         case b'\xD0': # attack
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: attack {value}')
+            print(f'{locationhex}: attack {value}')
             
             midi_cc(channel, 0x49, 0x7F - value)
             
         case b'\xD1': # decay
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: decay {value}')
+            print(f'{locationhex}: decay {value}')
             
             midi_cc(channel, 0x4B, value)
             
         case b'\xD2': # sustain
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: sustain {value}')
+            print(f'{locationhex}: sustain {value}')
             
             midi_cc(channel, 0x46, value)
             
         case b'\xD3': # release
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: release {value}')
+            print(f'{locationhex}: release {value}')
             
             midi_cc(channel, 0x48, 0x7F - value)
             
         case b'\xD5': # expression
-            value = int.from_bytes(seq.read(1))
+            value = read_7bit()
             
-            print(f'{location}: expression {value}')
+            print(f'{locationhex}: expression {value}')
             
             if combined_volume:
                 volumeD5[channel] = value
@@ -456,31 +419,31 @@ def parse_command(byte, i):
                 midi_cc(channel, 0x0B, value)
             
         case b'\xD8': # UNKNOWN, SMF_apacible
-            print(f'{location}: UNKNOWN D8')
+            print(f'{locationhex}: UNKNOWN D8')
             seq.read(1)
             
         case b'\xD9': # UNKNOWN, used in a lot of songs
-            print(f'{location}: fxa {int.from_bytes(seq.read(1))} (not implemented)')
+            print(f'{locationhex}: fxa {int.from_bytes(seq.read(1))} (not implemented)')
             
         case b'\xDA': # UNKNOWN, used in a lot of songs
-            print(f'{location}: fxb {int.from_bytes(seq.read(1))} (not implemented)')
+            print(f'{locationhex}: fxb {int.from_bytes(seq.read(1))} (not implemented)')
             
         case b'\xDC': # UNKNOWN, SMF_Tittle, SMF_OyamaLab_SR, SMF_Select_SR
-            print(f'{location}: UNKNOWN DC')
+            print(f'{locationhex}: UNKNOWN DC')
             seq.read(1)
             
         case b'\xDE': # UNKNOWN, all of mario kart wii, SMF_DonkeyKong_Final, SMF_dribble_song_full_us, SMF_dribble_song_ng_full_us
-            print(f'{location}: UNKNOWN DE')
+            print(f'{locationhex}: UNKNOWN DE')
             seq.read(1)
             
         case b'\xE0': # UNKNOWN, all of ace attorney, SMF_Luigi_final
-            print(f'{location}: UNKNOWN E0')
+            print(f'{locationhex}: UNKNOWN E0')
             seq.read(1)
             
         case b'\xE1': # set bpm
             value = int.from_bytes(seq.read(2), endianalt)
             
-            print(f'{location}: BPM {value}')
+            print(f'{locationhex}: BPM {value}')
             
             write_wait()
             mid.write(b'\xFF\x51\x03')
@@ -488,21 +451,18 @@ def parse_command(byte, i):
             mid.write(b'\x00')
             
         case b'\xF0': # UNKNOWN, all of luigis mansion
-            print(f'{location}: set variable, parameters: {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}')
+            print(f'{locationhex}: set variable, parameters: {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}')
             
         case b'\xFD': # return
-            print(f'{location}: return')
+            print(f'{locationhex}: return')
             
             if len(callreturn) > 0:
                 seq.seek(callreturn.pop(0))
             else:
-                print(f"\033[93mWARNING: nothing to return to!\033[0m")
+                print(f"\033[93mWARNING: nothing to return to!\033[0m") # should never happen
                 if failed_return_end:
                     write_wait()
                     mid.write(b'\xFF\x2F\x00')
-                    
-                    waittick = 0
-                    waitamount = 0
                     
                     if len(opentracknumber) > 0:
                         channel = opentracknumber.pop(0)
@@ -513,16 +473,13 @@ def parse_command(byte, i):
         case b'\xFE':
             allocated = int.from_bytes(seq.read(2))
             
-            print(f'{location}: allocate tracks {allocated} (not implemented)')
+            print(f'{locationhex}: allocate tracks {allocated} (not implemented)')
             
         case b'\xFF': # end
-            print(f'{location}: end track')
+            print(f'{locationhex}: end track')
             
             write_wait()
             mid.write(b'\xFF\x2F\x00')
-            
-            waittick = 0
-            waitamount = 0
             
             if len(opentracknumber) > 0:
                 channel = opentracknumber.pop(0)
@@ -532,15 +489,11 @@ def parse_command(byte, i):
             
         case _:
             if int.from_bytes(byte) < 0x80:
-                SEQ_note = int.from_bytes(byte)
-                SEQ_vel = int.from_bytes(seq.read(1))
-                SEQ_len = int.from_bytes(seq.read(1))
+                SEQ_note = int.from_bytes(byte) # 8 bit
+                SEQ_vel = int.from_bytes(seq.read(1)) # 8 bit
+                SEQ_len = read_7bit()
                 
-                if SEQ_len > 0x7F:
-                    SEQ_len = SEQ_len - 0x80 << 7
-                    SEQ_len += int.from_bytes(seq.read(1))
-                
-                print(f'{location}: play note {SEQ_note} with velocity {SEQ_vel} for {SEQ_len} ticks')
+                print(f'{locationhex}: play note {SEQ_note} with velocity {SEQ_vel} for {SEQ_len} ticks')
                 
                 notestick.append(tick + SEQ_len)
                 notescommand.append((0x80 + channel).to_bytes(1) + (SEQ_note).to_bytes(1) + (SEQ_vel).to_bytes(1) + b'\x00')
@@ -556,7 +509,48 @@ def parse_command(byte, i):
                 mid.write((SEQ_vel).to_bytes(1))
                 mid.write(b'\x00')
             else:
-                print(f'\033[91m{location}: unknown command {byte}\033[0m')
+                print(f'\033[91m{locationhex}: unknown command {byte}\033[0m')
+
+def write_7bit(value):
+    length = 0
+    count = value
+    while count > 0:
+        count = count >> 7
+        length += 1
+    if length == 0:
+        mid.write(b'\x00')
+        return
+    
+    for i in range(length):
+        part = (length - 1) - i
+        output = value >> (7 * part) & 0x7F
+        if part > 0:
+            output += 0x80
+        mid.write(output.to_bytes(1))
+
+def read_7bit():
+    value = 0
+    read = 0x80
+    
+    while read >= 0x80:
+        read = int.from_bytes(seq.read(1))
+        value += read
+        
+        if read >= 0x80:
+            value = value - 0x80 << 7
+    
+    return value
+
+def write_wait():
+    global tick
+    global waittick
+    
+    waitamount = tick - waittick # how much has been waited so far
+    
+    mid.seek(mid.tell() - 1)
+    write_7bit(waitamount)
+    
+    waittick = tick
 
 def midi_cc(channel, control, value):
     write_wait()
@@ -578,6 +572,21 @@ def midi_pitch_range(channel, value):
     midi_cc(channel, 0x65, 0) # i dont know why it needs these
     midi_cc(channel, 0x64, 0) # but it doesnt work without it
     midi_cc(channel, 0x06, value)
+
+def fix_mid_mtrk():
+    global mtrk
+    
+    mtrk.append(mid.tell())
+    print(f'mtrk: {mtrk}')
+    
+    for i in range(len(mtrk) - 1):
+        mid.seek(mtrk[i] + 4)
+        temp = mtrk[i + 1] - mtrk[i] - 8
+        mid.write(temp.to_bytes(4, byteorder="big"))
+    
+    mid.seek(0x0A)
+    temp = len(mtrk) - 1
+    mid.write(temp.to_bytes(2, byteorder="big"))
 
 def get_label(i):
     global tick
@@ -610,9 +619,6 @@ def get_label(i):
             mid.write(len(label).to_bytes(1))
             mid.write((label).encode())
             mid.write(b'\x00')
-        
-        tick = 0
-        nexttick = 0
 
 def parse_header():
     # *SEQ header
@@ -768,8 +774,6 @@ def parse_section_data(offset, length, i):
     notescommand = []
     global waittick
     waittick = 0
-    global waitamount
-    waitamount = 0
 
     global callreturn
     callreturn = []
@@ -818,7 +822,7 @@ def parse_section_data(offset, length, i):
     pitchCF = [0] * 16
     
     global pitchcombinedrange
-    pitchcombinedrange = 2 ** 5 # ~32 is needed for wwdiy 2BB00
+    pitchcombinedrange = 2 ** (4 + 1) # ~32 is needed for wwdiy 2BB00
     global previouspitch
     previouspitch = [8192] * 16
     global vibratotime
@@ -835,31 +839,14 @@ def parse_section_data(offset, length, i):
     mid.write('MThd'.encode())
     mid.write((6).to_bytes(4)) # length of MThd chunk (always 6)
     mid.write((1).to_bytes(2)) # format 1
-    mid.write((0xFF).to_bytes(2)) # TODO: track count
+    mid.write((16).to_bytes(2)) # default track count
     mid.write((timebase).to_bytes(2)) # default timebase
     get_label(i)
     
     while not done:
         checktick(i)
 
-def fix_mid_mtrk():
-    global mtrk
-    
-    mtrk.append(mid.tell())
-    print(f'mtrk: {mtrk}')
-    
-    for i in range(len(mtrk) - 1):
-        mid.seek(mtrk[i] + 4)
-        temp = mtrk[i + 1] - mtrk[i] - 8
-        mid.write(temp.to_bytes(4, byteorder="big"))
-    
-    mid.seek(0x0A)
-    temp = len(mtrk) - 1
-    mid.write(temp.to_bytes(2, byteorder="big"))
-
 def parse_section_labl(offset, length, i):
-    global headeroffset
-    
     header_common(b'LABL', length)
     
     if seqtype != b'RSEQ':
@@ -880,7 +867,6 @@ def parse_section_labl(offset, length, i):
     
     global hLABL_labeldataoffsets
     hLABL_labeldataoffsets = []
-    global hLABL_labellengths
     hLABL_labellengths = []
     global hLABL_labels
     hLABL_labels = []
