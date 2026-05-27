@@ -11,6 +11,8 @@ global combined_pitch # vibrato loses precision
 combined_pitch = True
 
 
+global start_label
+start_label = ""
 
 global accurate_mixing # only works for Mario and Donkey Kong: Minis on the Move, DOES NOT work for mario kart ds
 accurate_mixing = False
@@ -65,7 +67,7 @@ def checktick(i):
                 midi_cc(channel, 0x07, volume)
         
         if combined_pitch:
-            vibratotime[channel] += (60 / bpm) * (1 / timebase) * pitchCB[channel] / 2.670
+            vibratotime[channel] += (60 / bpm) * (1 / timebase) * pitchCB[channel] / 2.670 # TODO: does not work with changing bpm
             pitch = round(((pitchC3[channel]) + ((pitchC4[channel] / 128) * pitchC5[channel]) + (math.sin(vibratotime[channel] * (math.pi * 2)) * pitchCA[channel] / 127 * pitchCD[channel])) / pitchcombinedrange * 8192 + 8192)
             if pitch != previouspitch[channel] or not pitchinit[channel]:
                 pitchinit[channel] = True
@@ -207,7 +209,6 @@ def parse_command(byte, i):
             
         case b'\xA2': # UNKNOWN, BGM_AMB_SKY, SMF_LuigiSings_SR
             print(f'{locationhex}: UNKNOWN A2')
-            seq.read(4)
             
         case b'\xA3': # UNKNOWN found in nsmbw 0x70E40
             print(f'{locationhex}: UNKNOWN A3')
@@ -430,6 +431,11 @@ def parse_command(byte, i):
             
             midi_cc(channel, 0x48, 0x7F - value)
             
+        case b'\xD4': # UNKNOWN, rhf 8EAEA0
+            value = read_7bit()
+            
+            print(f'{locationhex}: loop {value} (not implemented)')
+            
         case b'\xD5': # expression
             value = read_7bit()
             
@@ -472,11 +478,20 @@ def parse_command(byte, i):
             mid.write((round(60000000 / value)).to_bytes(3))
             mid.write(b'\x00')
             
+        case b'\xE3': # UNKNOWN, rhf 8EAEA0
+            value = int.from_bytes(seq.read(2), endian) # 16 bit
+            value = (value & 0x7FFF) - (value & 0x8000) # signed
+            
+            print(f'{locationhex}: sweep {value} (not implemented)')
+            
         case b'\xF0': # UNKNOWN, all of luigis mansion
             print(f'{locationhex}: set variable, parameters: {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}, {int.from_bytes(seq.read(1))}')
             
+        case b'\xFC': # UNKNOWN, rhf 8EAEA0
+            print(f'{locationhex}: loop end (not implemented)')
+            
         case b'\xFD': # return
-            print(f'{locationhex}: return')
+            print(f'{locationhex}: return\n')
             
             if len(callreturn) > 0:
                 seq.seek(callreturn.pop(0))
@@ -810,14 +825,14 @@ def parse_section_data(offset, length, i):
     volumeinit = [False] * 16
     
     global volumeC1
-    volumeC1 = [100] * 16
+    volumeC1 = [127] * 16 # according to SMF_OyamaLab_SR
     global volumeC2
     volumeC2 = [127] * 16
     global volumeD5
     volumeD5 = [127] * 16
     
     global previousvolume
-    previousvolume = [100] * 16
+    previousvolume = [127] * 16
     
     global pitchinit
     pitchinit = [False] * 16
@@ -863,6 +878,10 @@ def parse_section_data(offset, length, i):
     mid.write((1).to_bytes(2)) # format 1
     mid.write((16).to_bytes(2)) # default track count
     mid.write((timebase).to_bytes(2)) # default timebase
+    
+    if len(start_label) > 0:
+        seq.seek(hLABL_labeldataoffsets[hLABL_labels.index(start_label)] + SEQ_sectionoffsets[i] + headeroffset)
+    
     get_label(i)
     
     while not done:
